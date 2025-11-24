@@ -22,7 +22,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.exceptions import NotFittedError
 
-# Desabilitar aviso de InsecureRequest, caso o código ainda esteja rodando em algum modo que o gere
+# Desabilitar aviso de InsecureRequest
 warnings.filterwarnings('ignore', category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
 
 
@@ -31,7 +31,7 @@ warnings.filterwarnings('ignore', category=requests.packages.urllib3.exceptions.
 # =============================================================================
 st.set_page_config(
     layout="wide",
-    page_title="Análise Mega-Sena AI", 
+    page_title="Análise Mega-Sena com Simulador de Jogos", 
     page_icon="🎲",
     initial_sidebar_state="collapsed"
 )
@@ -42,11 +42,11 @@ ALL_NUMBERS = list(range(1, 61))
 PRIMOS_1_A_60 = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59]
 
 # =============================================================================
-# 0. DESIGN SYSTEM & CSS
+# 0. DESIGN SYSTEM & CSS (CORRIGIDO)
 # =============================================================================
 
 def inject_custom_css():
-    """Injeta CSS customizado com tema escuro moderno."""
+    """Injeta CSS customizado com tema escuro moderno e correção de alinhamento."""
     st.markdown(
         """
         <style>
@@ -71,20 +71,30 @@ def inject_custom_css():
             
             h1 { 
                 color: #00e6b8; 
-                border-bottom: 3px solid #00e6b8;
-                padding-bottom: 15px;
-                text-align: center;
-                font-size: 2.5rem;
+                border-bottom: 3px solid #00e6b8; 
+                padding-bottom: 15px; 
+                text-align: center; 
+                font-size: 2.5rem; 
             }
             
             h2 { 
                 color: #00e6b8; 
-                border-left: 4px solid #00e6b8;
-                padding-left: 15px;
-                margin-top: 2rem;
+                border-left: 4px solid #00e6b8; 
+                padding-left: 15px; 
+                margin-top: 2rem; 
             }
             
-            h3 { color: #cbd5e1; font-size: 1.4rem; }
+            /* --- CORREÇÃO DO BUG DE ALINHAMENTO AQUI --- */
+            h3 { 
+                color: #cbd5e1; 
+                font-size: 1.3rem; 
+                /* Garante altura mínima para 2 linhas, evitando desalinhamento */
+                min-height: 3.5rem; 
+                display: flex;
+                align-items: end; /* Alinha texto embaixo */
+                margin-bottom: 10px !important;
+            }
+            
             p, label { color: #e2e8f0; line-height: 1.6; }
 
             /* BOTÕES DE NAVEGAÇÃO */
@@ -196,11 +206,6 @@ def inject_custom_css():
             .custom-table-row:hover {
                 background-color: #334155;
             }
-            
-            .col-concurso { width: 15%; font-weight: bold; }
-            .col-data { width: 15%; }
-            .col-numeros { width: 55%; text-align: center; }
-            .col-soma { width: 15%; text-align: right; font-weight: bold; }
 
             /* LOADING SPINNER CUSTOM */
             .stSpinner > div {
@@ -252,9 +257,8 @@ def carregar_dados_caixa() -> Optional[pd.DataFrame]:
 
 def criar_dados_exemplo() -> pd.DataFrame:
     """Cria dados de exemplo para demonstração."""
-    # Usar datas realistas do passado
-    end_date = datetime.now() - timedelta(days=7)  # Última semana
-    start_date = end_date - timedelta(days=2000*7)  # ~2000 sorteios no passado
+    end_date = datetime.now() - timedelta(days=7)
+    start_date = end_date - timedelta(days=2000*7)
     
     dates = pd.date_range(start=start_date, end=end_date, freq='W-WED')
     np.random.seed(42)
@@ -274,7 +278,6 @@ def criar_dados_exemplo() -> pd.DataFrame:
 def processar_arquivo_excel(caminho: str) -> Optional[pd.DataFrame]:
     """Processa o arquivo Excel baixado da Caixa."""
     try:
-        # Detectar cabeçalho
         df_raw = pd.read_excel(caminho, header=None, nrows=10)
         linha_cabecalho = None
         
@@ -284,16 +287,13 @@ def processar_arquivo_excel(caminho: str) -> Optional[pd.DataFrame]:
                 linha_cabecalho = i
                 break
         
-        # Ler dados
         if linha_cabecalho is not None:
             df = pd.read_excel(caminho, header=linha_cabecalho)
         else:
             df = pd.read_excel(caminho, header=0)
         
-        # Mapeamento de colunas inteligente
         df_clean = mapear_colunas_dataframe(df)
         
-        # Validação e limpeza
         if not validar_dataframe(df_clean):
             return None
             
@@ -325,7 +325,6 @@ def mapear_colunas_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 df_clean[target_col] = df[df_cols_lower[pattern]]
                 break
     
-    # Fallback para formato padrão da Caixa
     if len(df_clean.columns) < 4 and len(df.columns) >= 8:
         df_clean['Concurso'] = df.iloc[:, 0]
         df_clean['Data'] = df.iloc[:, 1]
@@ -351,12 +350,10 @@ def validar_dataframe(df: pd.DataFrame) -> bool:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Remoção crítica de datas futuras e linhas inválidas
         data_atual = datetime.now()
         df = df[df['Data'] <= data_atual]
         df.dropna(subset=['Concurso', 'Data', 'B1', 'B2'], inplace=True)
         
-        # Validações de conteúdo
         df = df[df['Concurso'] > 0]
         for col in COLUNAS_BOLAS:
             if col in df.columns:
@@ -375,28 +372,22 @@ def gerar_pdf_bytes(palpites: List[List[int]], titulo: str = "MEGA-SENA - PALPIT
     pdf = FPDF()
     pdf.add_page()
     
-    # Header
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 15, titulo, 0, 1, 'C')
     pdf.ln(5)
     
-    # Data de geração
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(0, 8, f"Gerado em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}", 0, 1, 'C')
     pdf.ln(10)
     
-    # Palpites
     pdf.set_font("Courier", 'B', 14)
     
     for i, palpite in enumerate(palpites, 1):
         numeros_formatados = "  ".join([f"{n:02d}" for n in palpite])
         texto = f"JOGO {i:02d}:  {numeros_formatados}"
-        
-        # Container para cada jogo
         pdf.cell(0, 12, texto, 1, 1, 'C')
-        pdf.ln(3) # Espaço entre jogos
+        pdf.ln(3)
     
-    # Footer
     pdf.ln(15)
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(0, 8, "*** Gerado por Sistema de Análise Preditiva - Boa Sorte! ***", 0, 1, 'C')
@@ -405,20 +396,17 @@ def gerar_pdf_bytes(palpites: List[List[int]], titulo: str = "MEGA-SENA - PALPIT
     return pdf.output(dest='S').encode('latin-1')
 
 # =============================================================================
-# 2. FUNÇÕES ESTATÍSTICAS (OTIMIZADAS)
+# 2. FUNÇÕES ESTATÍSTICAS
 # =============================================================================
 
 @st.cache_data
 def is_primo(n: int) -> bool:
-    """Verifica se número é primo (otimizado)."""
     return n in PRIMOS_1_A_60
 
 @st.cache_data
 def get_primos_compostos(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Análise completa de primos vs compostos."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     
-    # Estatísticas por sorteio
     df_analise = df[bolas_cols].apply(
         lambda row: pd.Series({
             'Qtd_Primos': sum(is_primo(n) for n in row),
@@ -426,13 +414,11 @@ def get_primos_compostos(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, 
         }), axis=1
     )
     
-    # Distribuição
     dist_primos = df_analise['Qtd_Primos'].value_counts(normalize=True).sort_index() * 100
     dist_primos = dist_primos.reset_index()
     dist_primos.columns = ['Qtd_Primos', 'Percentual']
     dist_primos['Label'] = dist_primos['Qtd_Primos'].apply(lambda x: f"{x} Prim{'os' if x != 1 else 'o'} / {6-x} Compost{'os' if 6-x != 1 else 'o'}")
     
-    # Frequência agregada
     todos_numeros = df[bolas_cols].values.flatten()
     freq_total = Counter(todos_numeros)
     
@@ -449,7 +435,6 @@ def get_primos_compostos(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, 
         ]
     })
     
-    # Proporção teórica
     df_teorico = pd.DataFrame({
         'Categoria': ['Primos', 'Compostos', 'Número 1'],
         'Qtd_Universo': [len(PRIMOS_1_A_60), 60 - len(PRIMOS_1_A_60) - 1, 1],
@@ -464,28 +449,23 @@ def get_primos_compostos(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, 
 
 @st.cache_data
 def get_frequencia(df: pd.DataFrame) -> List[Tuple[int, int]]:
-    """Calcula frequência de todos os números."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     todos_numeros = df[bolas_cols].values.flatten()
     frequencia = Counter(todos_numeros)
     
-    # Garantir todos os números de 1 a 60
     for num in ALL_NUMBERS:
         frequencia.setdefault(num, 0)
     
-    # Retorna ordenado pela frequência (decrescente) e depois pelo número (crescente)
     return sorted(frequencia.items(), key=lambda x: (x[1], -x[0]), reverse=True)
 
 @st.cache_data
 def get_pares_impares(df: pd.DataFrame) -> pd.Series:
-    """Distribuição de pares/ímpares."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     qtd_impares = (df[bolas_cols] % 2 == 1).sum(axis=1)
     return qtd_impares.value_counts(normalize=True).sort_index() * 100
 
 @st.cache_data
 def get_frequencia_faixas(df: pd.DataFrame) -> pd.Series:
-    """Frequência por faixas de dezenas."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     todos_numeros = df[bolas_cols].values.flatten()
     
@@ -495,7 +475,6 @@ def get_frequencia_faixas(df: pd.DataFrame) -> pd.Series:
 
 @st.cache_data
 def get_atrasados(df: pd.DataFrame) -> List[Tuple[int, int]]:
-    """Calcula atraso de cada número."""
     if df.empty:
         return []
     
@@ -510,7 +489,6 @@ def get_atrasados(df: pd.DataFrame) -> List[Tuple[int, int]]:
 
 @st.cache_data
 def get_quentes_frios(df: pd.DataFrame, window: int = 50) -> Tuple[List, List]:
-    """Identifica números quentes e frios."""
     if len(df) < window:
         window = len(df)
     
@@ -527,7 +505,6 @@ def get_quentes_frios(df: pd.DataFrame, window: int = 50) -> Tuple[List, List]:
 
 @st.cache_data
 def get_combinacoes(df: pd.DataFrame) -> Tuple[List, List]:
-    """Encontra combinações mais frequentes."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     
     duplas = Counter()
@@ -546,7 +523,6 @@ def get_combinacoes(df: pd.DataFrame) -> Tuple[List, List]:
 
 @st.cache_data
 def get_vizinhos(df: pd.DataFrame, numero: int) -> List[Tuple[int, int]]:
-    """Encontra números que mais aparecem junto com o número especificado."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df.columns]
     vizinhos = Counter()
     
@@ -560,18 +536,16 @@ def get_vizinhos(df: pd.DataFrame, numero: int) -> List[Tuple[int, int]]:
     return vizinhos.most_common(10)
 
 # =============================================================================
-# 3. FUNÇÕES DE MACHINE LEARNING (OTIMIZADAS)
+# 3. FUNÇÕES DE MACHINE LEARNING
 # =============================================================================
 
 def compute_basic_freqs_fast(df_ml: pd.DataFrame, window: Optional[int] = None) -> Dict[int, int]:
-    """Calcula frequências básicas de forma otimizada."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df_ml.columns]
     dados = df_ml.tail(window)[bolas_cols].values.flatten() if window else df_ml[bolas_cols].values.flatten()
     freq = pd.Series(dados).value_counts()
     return {n: freq.get(n, 0) for n in ALL_NUMBERS}
 
 def exponential_moving_freq_fast(df_ml: pd.DataFrame, span: int = 20) -> Dict[int, float]:
-    """Calcula média móvel exponencial das frequências."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df_ml.columns]
     
     data_list = []
@@ -590,7 +564,6 @@ def exponential_moving_freq_fast(df_ml: pd.DataFrame, span: int = 20) -> Dict[in
     return {n: float(ema.get(n, 0.0)) for n in ALL_NUMBERS}
 
 def last_appearance_distance_fast(df_ml: pd.DataFrame, max_dist: int = 1000) -> Dict[int, int]:
-    """Calcula distância desde última aparição."""
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df_ml.columns]
     
     melted = []
@@ -609,11 +582,9 @@ def last_appearance_distance_fast(df_ml: pd.DataFrame, max_dist: int = 1000) -> 
     return {n: int(current_idx - last_appearance.get(n, -1)) for n in ALL_NUMBERS}
 
 def build_features_table_fast(df_ml: pd.DataFrame) -> pd.DataFrame:
-    """Constrói tabela de features para ML."""
     if len(df_ml) == 0:
         return pd.DataFrame()
     
-    # Calcular diferentes métricas
     freq_all = compute_basic_freqs_fast(df_ml)
     freq_50 = compute_basic_freqs_fast(df_ml, 50)
     freq_10 = compute_basic_freqs_fast(df_ml, 10)
@@ -623,7 +594,6 @@ def build_features_table_fast(df_ml: pd.DataFrame) -> pd.DataFrame:
     
     last_dist = last_appearance_distance_fast(df_ml, len(df_ml) + 100)
     
-    # Construir DataFrame de features
     data = []
     for num in ALL_NUMBERS:
         data.append({
@@ -643,7 +613,6 @@ def build_features_table_fast(df_ml: pd.DataFrame) -> pd.DataFrame:
     
     features = pd.DataFrame(data).set_index('numero')
     
-    # Normalizar features
     for col in ['freq_all', 'freq_50', 'freq_10']:
         max_val = max(1, features[col].max())
         features[f'{col}_norm'] = features[col] / max_val
@@ -653,15 +622,12 @@ def build_features_table_fast(df_ml: pd.DataFrame) -> pd.DataFrame:
     return features
 
 def create_training_dataset_fast(df_ml: pd.DataFrame, sample_fraction: float = 0.3) -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-    """Cria dataset de treino otimizado."""
     df_sorted = df_ml.reset_index(drop=True)
     n = len(df_sorted)
     
-    # Definir pontos temporais para treino
     start_idx = max(50, int(0.15 * n))
     time_points = list(range(start_idx, n - 1))
     
-    # Amostrar pontos temporais para eficiência
     if len(time_points) > 100:
         step = max(1, len(time_points) // 100)
         time_points = time_points[::step]
@@ -669,21 +635,17 @@ def create_training_dataset_fast(df_ml: pd.DataFrame, sample_fraction: float = 0
     examples, targets = [], []
     bolas_cols = [col for col in COLUNAS_BOLAS if col in df_sorted.columns]
     
-    # Barra de progresso
     progress_bar = st.progress(0, text="🔄 Processando dados históricos...")
     
     for i, t in enumerate(time_points):
         progress = (i + 1) / len(time_points)
         progress_bar.progress(progress, text=f"📊 Analisando período {t}/{n} ({progress:.1%})")
         
-        # Features até o tempo t
         df_until = df_sorted.iloc[:t + 1]
         features = build_features_table_fast(df_until)
         
-        # Próximo sorteio (target)
         proximo_sorteio = set(df_sorted.loc[t + 1, bolas_cols].tolist())
         
-        # Amostragem balanceada
         numeros_amostra = list(ALL_NUMBERS)
         if sample_fraction < 1.0:
             n_amostra = max(15, int(60 * sample_fraction))
@@ -695,7 +657,6 @@ def create_training_dataset_fast(df_ml: pd.DataFrame, sample_fraction: float = 0
             
             numeros_amostra = numeros_sorteados + amostra_nao_sorteados
         
-        # Adicionar exemplos
         for num in numeros_amostra:
             examples.append(features.loc[num].values)
             targets.append(1 if num in proximo_sorteio else 0)
@@ -706,11 +667,9 @@ def create_training_dataset_fast(df_ml: pd.DataFrame, sample_fraction: float = 0
 
 @st.cache_resource(ttl=3600, show_spinner="🧠 Treinando modelo de IA...")
 def treinar_modelo_avancado(df: pd.DataFrame, use_sampling: bool = True) -> Tuple[Any, Any, pd.DataFrame]:
-    """Treina modelo preditivo avançado."""
     if len(df) < 80:
         raise ValueError("📊 Dados insuficientes para treino (mínimo 80 sorteios)")
     
-    # Configurar amostragem baseada no tamanho dos dados
     sample_frac = 0.4 if use_sampling and len(df) > 500 else 0.8
     
     with st.spinner("🎯 Preparando modelo de machine learning..."):
@@ -719,11 +678,9 @@ def treinar_modelo_avancado(df: pd.DataFrame, use_sampling: bool = True) -> Tupl
     if len(X) == 0:
         raise ValueError("❌ Erro ao gerar features para treino")
     
-    # Pré-processamento
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Configurar modelo base
     base_model = LogisticRegression(
         max_iter=1000,
         class_weight='balanced',
@@ -733,11 +690,9 @@ def treinar_modelo_avancado(df: pd.DataFrame, use_sampling: bool = True) -> Tupl
         n_jobs=-1
     )
     
-    # Configurar validação cruzada temporal
     n_splits = max(2, min(5, len(X_scaled) // 1000))
     cv = TimeSeriesSplit(n_splits=n_splits) if len(X_scaled) >= 500 else 3
     
-    # Modelo calibrado
     calibrated_model = CalibratedClassifierCV(
         estimator=base_model,
         cv=cv,
@@ -750,11 +705,9 @@ def treinar_modelo_avancado(df: pd.DataFrame, use_sampling: bool = True) -> Tupl
     return calibrated_model, scaler, df_processed
 
 def gerar_previsoes_avancadas(df_processed: pd.DataFrame, model: Any, scaler: Any) -> List[Tuple[int, float]]:
-    """Gera previsões probabilísticas."""
     features = build_features_table_fast(df_processed)
     X_scaled = scaler.transform(features.values)
     
-    # Verificar se o modelo foi treinado
     try:
         probabilities = model.predict_proba(X_scaled)[:, 1]
     except NotFittedError:
@@ -764,9 +717,8 @@ def gerar_previsoes_avancadas(df_processed: pd.DataFrame, model: Any, scaler: An
         probabilities = np.array([freqs.get(num, 1) / total_freq for num in ALL_NUMBERS])
     except Exception as e:
         st.error(f"Erro ao gerar previsões: {e}")
-        return [(num, 1/60) for num in ALL_NUMBERS] # Fallback
+        return [(num, 1/60) for num in ALL_NUMBERS]
     
-    # Suavizar probabilidades
     exponents = np.exp(probabilities - np.max(probabilities))
     relative_probs = exponents / exponents.sum()
     
@@ -774,7 +726,6 @@ def gerar_previsoes_avancadas(df_processed: pd.DataFrame, model: Any, scaler: An
                   key=lambda x: x[1], reverse=True)
 
 def safe_weighted_choice(population: List[int], weights: List[float], k: int) -> List[int]:
-    """Seleção ponderada segura."""
     try:
         weights_array = np.maximum(np.array(weights, dtype=float), 0)
         if weights_array.sum() == 0:
@@ -788,7 +739,6 @@ def safe_weighted_choice(population: List[int], weights: List[float], k: int) ->
 
 @st.cache_data
 def gerar_combinacoes_avancadas(predictions: List[Tuple[int, float]], n_combinacoes: int = 8, diversificar: bool = True) -> List[List[int]]:
-    """Gera combinações otimizadas baseadas nas previsões."""
     numeros, pesos = [p[0] for p in predictions], [p[1] for p in predictions]
     candidatos, pesos_candidatos = numeros[:30], pesos[:30]
     
@@ -801,18 +751,16 @@ def gerar_combinacoes_avancadas(predictions: List[Tuple[int, float]], n_combinac
         combinacao = safe_weighted_choice(candidatos, pesos_candidatos, 6)
         combinacao_tuple = tuple(sorted(combinacao))
         
-        # Aplicar diversificação se solicitado
         if diversificar:
             pares = sum(1 for x in combinacao if x % 2 == 0)
             primos = sum(1 for x in combinacao if is_primo(x))
             soma_total = sum(combinacao)
             
-            # Critérios de diversificação (ajustados levemente para flexibilidade)
-            if pares < 2 or pares > 4:  # Balanceamento par/ímpar (2/4, 3/3, 4/2)
+            if pares < 2 or pares > 4:
                 continue
-            if primos < 1 or primos > 4:  # Balanceamento primos
+            if primos < 1 or primos > 4:
                 continue
-            if soma_total < 100 or soma_total > 250:  # Soma dentro da faixa comum
+            if soma_total < 100 or soma_total > 250:
                 continue
         
         combinacoes.add(combinacao_tuple)
@@ -824,7 +772,6 @@ def gerar_combinacoes_avancadas(predictions: List[Tuple[int, float]], n_combinac
 # =============================================================================
 
 def draw_navigation():
-    """Barra de navegação superior responsiva."""
     pages = {
         "📊 Visão Geral": "visao_geral",
         "📈 Frequência": "frequencia", 
@@ -839,7 +786,6 @@ def draw_navigation():
     if 'current_page' not in st.session_state:
         st.session_state['current_page'] = "visao_geral"
     
-    # Criar colunas para navegação
     cols = st.columns(len(pages))
     
     for col, (label, page_key) in zip(cols, pages.items()):
@@ -853,17 +799,12 @@ def draw_navigation():
     st.markdown("---")
 
 # =============================================================================
-# 5. PÁGINAS DE CONTEÚDO (CORRIGIDAS)
+# 5. PÁGINAS DE CONTEÚDO
 # =============================================================================
 
 def page_visao_geral(df: pd.DataFrame):
-    """
-    Página de visão geral dos dados.
-    CORREÇÃO CRÍTICA: HTML da tabela e filtro de data no local certo.
-    """
     st.header("📊 Visão Geral dos Sorteios")
     
-    # Métricas principais
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -882,13 +823,10 @@ def page_visao_geral(df: pd.DataFrame):
     
     st.divider()
     
-    # Últimos resultados (20 resultados)
     st.subheader("🎯 Últimos 20 Resultados")
     
-    # 1. Filtrar datas futuras (Garantia) e pegar os últimos 20
     df_recent = df[df['Data'] <= datetime.now()].tail(20).sort_values('Data', ascending=False)
     
-    # 2. Renderizar Cabeçalho Customizado
     header_cols = st.columns([1, 1, 3, 1])
     with header_cols[0]:
         st.markdown(f'<div class="custom-table-header" style="width: 100%; border-radius: 12px 0 0 0; background: linear-gradient(135deg, #00e6b8 0%, #00b894 100%);">Concurso</div>', unsafe_allow_html=True)
@@ -899,35 +837,28 @@ def page_visao_geral(df: pd.DataFrame):
     with header_cols[3]:
         st.markdown(f'<div class="custom-table-header" style="width: 100%; border-radius: 0 12px 0 0; background: linear-gradient(135deg, #00e6b8 0%, #00b894 100%); text-align: right;">Soma</div>', unsafe_allow_html=True)
         
-    # 3. Renderizar Linhas
     for i, row in df_recent.iterrows():
         numeros = [int(row[col]) for col in COLUNAS_BOLAS if pd.notna(row[col])]
         soma = sum(numeros)
         
-        # Formatar números como bolas usando HTML
         bolas_html = "".join([f'<span class="lotto-number">{n:02d}</span>' for n in numeros])
         data_fmt = row['Data'].strftime('%d/%m/%Y')
         
-        # Estrutura de colunas para cada linha
         row_cols = st.columns([1, 1, 3, 1])
         
-        # Usa Markdown com HTML para cada coluna
         with row_cols[0]:
             st.markdown(f"<div class='custom-table-row' style='border-bottom: none; border-radius: 0;'><strong>{row['Concurso']}</strong></div>", unsafe_allow_html=True)
         with row_cols[1]:
             st.markdown(f"<div class='custom-table-row' style='border-bottom: none; border-radius: 0;'>{data_fmt}</div>", unsafe_allow_html=True)
         with row_cols[2]:
-            # A coluna de números precisa do estilo para centralizar o bloco de bolas
             st.markdown(f"<div class='custom-table-row' style='border-bottom: none; justify-content: center; border-radius: 0;'>{bolas_html}</div>", unsafe_allow_html=True)
         with row_cols[3]:
             st.markdown(f"<div class='custom-table-row' style='border-bottom: none; justify-content: flex-end; border-radius: 0;'><strong>{soma}</strong></div>", unsafe_allow_html=True)
             
-        # Linha separadora simples
         st.markdown("---")
 
     st.divider()
     
-    # Evolução temporal
     st.subheader("📈 Evolução Temporal dos Sorteios")
     
     df_anual = df.copy()
@@ -949,33 +880,22 @@ def page_visao_geral(df: pd.DataFrame):
         st.info("Não há dados suficientes para gerar o gráfico de evolução temporal.")
 
 def page_frequencia(df: pd.DataFrame):
-    """
-    Página de análise de frequência.
-    CORREÇÃO CRÍTICA: Gráfico Altair simplificado para garantir renderização.
-    """
     st.header("📈 Frequência dos Números")
     st.markdown("Distribuição completa da frequência de todos os números de 1 a 60.")
     
     freq_data = get_frequencia(df)
     df_freq = pd.DataFrame(freq_data, columns=['Número', 'Frequência'])
     
-    # CORREÇÃO: Usar st.write para debug (removendo o debug se o gráfico funcionar)
-    # st.write("Dados de frequência (Debug):", df_freq.head(10)) 
-    
     if df_freq.empty:
         st.warning("Não há dados de frequência disponíveis.")
         return
     
-    # CORREÇÃO: Gráfico simplificado com cor sólida e usando Nominal para estabilidade
     try:
-        # Converter para string para forçar Nominal e ordenação correta no eixo X
         df_freq['Número_str'] = df_freq['Número'].astype(str)
         
         chart = alt.Chart(df_freq).mark_bar(color='#00e6b8').encode(
-            # Usa Nominal (:N) para tratar cada número como uma categoria discreta (barra separada)
             x=alt.X('Número_str:N', 
                     title='Número (1 a 60)', 
-                    # Força a ordenação de '1' a '60' para o eixo X
                     sort=[str(n) for n in ALL_NUMBERS], 
                     axis=alt.Axis(labelAngle=0)), 
             y=alt.Y('Frequência:Q', title='Frequência'),
@@ -994,7 +914,6 @@ def page_frequencia(df: pd.DataFrame):
     
     st.divider()
     
-    # Tabelas comparativas
     col1, col2 = st.columns(2)
     
     with col1:
@@ -1022,7 +941,6 @@ def page_frequencia(df: pd.DataFrame):
         )
 
 def page_pares_impares(df: pd.DataFrame):
-    """Página de análise de pares e ímpares."""
     st.header("⚖️ Análise de Pares e Ímpares")
     
     dist_pares_impares = get_pares_impares(df).reset_index()
@@ -1069,7 +987,6 @@ def page_pares_impares(df: pd.DataFrame):
     
     st.divider()
     
-    # Estatísticas detalhadas
     st.subheader("📋 Estatísticas Detalhadas")
     
     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -1089,13 +1006,11 @@ def page_pares_impares(df: pd.DataFrame):
         st.metric("Faixa Mais Frequente", faixa_mais_comum)
 
 def page_primos_compostos(df: pd.DataFrame):
-    """Página de análise de números primos e compostos."""
     st.header("🔢 Análise de Primos e Compostos")
     st.markdown("Distribuição estatística de números primos e compostos nos sorteios históricos.")
     
     dist_primos, resumo, teorico = get_primos_compostos(df)
     
-    # Métricas rápidas
     col1, col2, col3, col4 = st.columns(4)
     
     media_primos = (dist_primos['Qtd_Primos'] * dist_primos['Percentual']).sum() / 100
@@ -1151,7 +1066,6 @@ def page_primos_compostos(df: pd.DataFrame):
     
     st.divider()
     
-    # Análise de primos individuais
     st.subheader("🎯 Análise Individual dos Primos")
     
     freq_data = get_frequencia(df)
@@ -1185,7 +1099,6 @@ def page_primos_compostos(df: pd.DataFrame):
         )
 
 def page_combinacoes(df: pd.DataFrame):
-    """Página de análise de combinações."""
     st.header("🤝 Análise de Combinações")
     
     tipo_analise = st.radio(
@@ -1289,6 +1202,9 @@ def page_combinacoes(df: pd.DataFrame):
                 }
             )
 
+# =============================================================================
+# PAGINA QUENTES E FRIOS (CORRIGIDA)
+# =============================================================================
 def page_quentes_frios(df: pd.DataFrame):
     """Página de análise de números quentes e frios."""
     st.header("🔥❄️ Números Quentes, Frios e Atrasados")
@@ -1298,15 +1214,20 @@ def page_quentes_frios(df: pd.DataFrame):
     atrasados = get_atrasados(df)
     quentes, frios = get_quentes_frios(df, janela)
     
-    col1, col2, col3 = st.columns(3)
+    # Configuração de colunas com gap para melhor visualização
+    col1, col2, col3 = st.columns(3, gap="medium")
     
+    # --- FIX CRÍTICO: Altura fixa para as tabelas ---
+    TABLE_HEIGHT = 560 
+
     with col1:
-        st.subheader(f"🔥 Quentes (Últimos {janela} sorteios)")
+        st.subheader(f"🔥 Quentes ({janela} concursos)")
         df_quentes = pd.DataFrame(quentes[:15], columns=['Número', 'Frequência'])
         st.dataframe(
             df_quentes,
             use_container_width=True,
             hide_index=True,
+            height=TABLE_HEIGHT,  # Altura fixa
             column_config={
                 "Número": st.column_config.NumberColumn(format="%d"),
                 "Frequência": st.column_config.NumberColumn(format="%d")
@@ -1314,12 +1235,13 @@ def page_quentes_frios(df: pd.DataFrame):
         )
     
     with col2:
-        st.subheader(f"❄️ Frios (Últimos {janela} sorteios)")
+        st.subheader(f"❄️ Frios ({janela} concursos)")
         df_frios = pd.DataFrame(frios[:15], columns=['Número', 'Frequência'])
         st.dataframe(
             df_frios,
             use_container_width=True,
             hide_index=True,
+            height=TABLE_HEIGHT, # Altura fixa
             column_config={
                 "Número": st.column_config.NumberColumn(format="%d"),
                 "Frequência": st.column_config.NumberColumn(format="%d")
@@ -1327,12 +1249,13 @@ def page_quentes_frios(df: pd.DataFrame):
         )
     
     with col3:
-        st.subheader("⏰ Mais Atrasados")
+        st.subheader("⏰ Mais Atrasados (Geral)")
         df_atrasados = pd.DataFrame(atrasados[:15], columns=['Número', 'Atraso'])
         st.dataframe(
             df_atrasados,
             use_container_width=True,
             hide_index=True,
+            height=TABLE_HEIGHT, # Altura fixa
             column_config={
                 "Número": st.column_config.NumberColumn(format="%d"),
                 "Atraso": st.column_config.NumberColumn(format="%d")
@@ -1341,7 +1264,6 @@ def page_quentes_frios(df: pd.DataFrame):
     
     st.divider()
     
-    # Visualização gráfica dos atrasados
     st.subheader("📊 Gráfico de Atrasos (Top 20)")
     
     df_atrasados_chart = pd.DataFrame(atrasados[:20], columns=['Número', 'Atraso'])
@@ -1358,14 +1280,12 @@ def page_quentes_frios(df: pd.DataFrame):
     st.altair_chart(chart_atrasados, use_container_width=True)
 
 def page_somas(df: pd.DataFrame):
-    """Página de análise das somas."""
     st.header("➕ Análise das Somas das Dezenas")
     st.markdown("Distribuição estatística das somas dos 6 números sorteados em cada concurso.")
     
     df_soma = df.copy()
     df_soma['Soma'] = df_soma[COLUNAS_BOLAS].sum(axis=1)
     
-    # Estatísticas básicas
     media_soma = df_soma['Soma'].mean()
     mediana_soma = df_soma['Soma'].median()
     moda_soma = df_soma['Soma'].mode().iloc[0] if not df_soma['Soma'].mode().empty else 0
@@ -1387,7 +1307,6 @@ def page_somas(df: pd.DataFrame):
     
     st.divider()
     
-    # Histograma das somas
     st.subheader("📈 Distribuição das Somas (Curva de Sino)")
     
     histograma = alt.Chart(df_soma).mark_bar(color='#00e6b8', opacity=0.8).encode(
@@ -1399,7 +1318,6 @@ def page_somas(df: pd.DataFrame):
         title='Distribuição Normal das Somas dos Sorteios'
     )
     
-    # Linha de média
     media_line = alt.Chart(pd.DataFrame({'media': [media_soma]})).mark_rule(
         color='#ef4444',
         strokeWidth=2,
@@ -1418,7 +1336,6 @@ def page_somas(df: pd.DataFrame):
     
     st.divider()
     
-    # Somas recentes
     st.subheader("📋 Somas dos Últimos 20 Sorteios")
     
     df_recentes = df_soma.tail(20).sort_values('Concurso', ascending=False)
@@ -1436,7 +1353,6 @@ def page_somas(df: pd.DataFrame):
     )
 
 def page_previsoes_ai(df: pd.DataFrame):
-    """Página de previsões com machine learning."""
     st.header("🤖 Previsões com Inteligência Artificial")
     st.markdown("""
     **Sistema Preditivo Baseado em Machine Learning**
@@ -1445,7 +1361,6 @@ def page_previsoes_ai(df: pd.DataFrame):
     dos números serem sorteados no próximo concurso.
     """)
     
-    # Configurações do modelo
     col_config1, col_config2, col_config3 = st.columns(3)
     
     with col_config1:
@@ -1464,7 +1379,6 @@ def page_previsoes_ai(df: pd.DataFrame):
     
     st.divider()
     
-    # Aceite de responsabilidade
     with st.expander("⚠️ Termos de Responsabilidade", expanded=True):
         st.markdown("""
         **Importante:**
@@ -1493,7 +1407,6 @@ def page_previsoes_ai(df: pd.DataFrame):
                 
                 st.success("✅ Modelo treinado e calibrado com sucesso!")
                 
-                # Top K probabilidades
                 st.subheader(f"🎯 Top {top_k} Probabilidades Preditivas")
                 
                 df_top = pd.DataFrame(previsoes[:top_k], columns=['Número', 'Probabilidade'])
@@ -1510,7 +1423,6 @@ def page_previsoes_ai(df: pd.DataFrame):
                 
                 st.altair_chart(chart_probs, use_container_width=True)
                 
-                # Tabela de probabilidades
                 df_display = df_top.copy()
                 df_display['Probabilidade'] = df_display['Probabilidade_Percentual'].map(lambda x: f"{x:.3f}%")
                 st.dataframe(
@@ -1525,7 +1437,6 @@ def page_previsoes_ai(df: pd.DataFrame):
                 
                 st.divider()
                 
-                # Combinações sugeridas
                 st.subheader("💡 Combinações Sugeridas (Otimizadas)")
                 
                 combinacoes = gerar_combinacoes_avancadas(previsoes, n_combinacoes, diversificar)
@@ -1536,12 +1447,10 @@ def page_previsoes_ai(df: pd.DataFrame):
                     for i, comb in enumerate(combinacoes, 1):
                         st.markdown(f"#### 🎯 Palpite {i}")
                         
-                        # Bolas do palpite
                         bolas_html = "".join([f'<span class="lotto-number">{n:02d}</span>' for n in comb])
                         st.markdown(f"<div style='text-align: center; margin: 20px 0;'>{bolas_html}</div>", 
                                   unsafe_allow_html=True)
                         
-                        # Estatísticas do palpite
                         soma = sum(comb)
                         pares = sum(1 for x in comb if x % 2 == 0)
                         impares = 6 - pares
@@ -1565,7 +1474,6 @@ def page_previsoes_ai(df: pd.DataFrame):
                         
                         st.markdown("---")
                     
-                    # Download dos palpites
                     st.subheader("💾 Exportar Palpites")
                     
                     pdf_bytes = gerar_pdf_bytes(combinacoes, "MEGA-SENA - PALPITES IA")
@@ -1579,7 +1487,6 @@ def page_previsoes_ai(df: pd.DataFrame):
                         use_container_width=True
                     )
                 
-                # Probabilidades completas
                 if mostrar_todas_probs:
                     st.divider()
                     st.subheader("📊 Probabilidades de Todos os Números")
@@ -1611,10 +1518,8 @@ def page_previsoes_ai(df: pd.DataFrame):
 def main():
     """Função principal da aplicação."""
     
-    # Injetar CSS customizado
     inject_custom_css()
     
-    # Header principal
     st.title("🎲 Analisador Mega-Sena AI")
     st.markdown("""
     <div style='text-align: center; color: #94a3b8; margin-bottom: 30px;'>
@@ -1622,7 +1527,6 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Carregar dados
     with st.spinner("📡 Conectando à base de dados..."):
         df = carregar_dados_caixa()
     
@@ -1639,15 +1543,12 @@ def main():
         """)
         return
     
-    # Validar dados
     if not validar_dataframe(df):
         st.error("❌ Os dados carregados estão em formato inválido.")
         return
     
-    # Navegação
     draw_navigation()
     
-    # Roteamento de páginas
     pagina = st.session_state['current_page']
     
     if pagina == "visao_geral":
@@ -1667,13 +1568,12 @@ def main():
     elif pagina == "previsoes_ai":
         page_previsoes_ai(df)
     
-    # Footer
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #64748b; font-size: 0.9rem;'>
     🎯 Desenvolvido para fins educacionais e análise estatística • 
     Use com responsabilidade • 
-    Versão 2.0
+    Versão 2.1
     </div>
     """, unsafe_allow_html=True)
 

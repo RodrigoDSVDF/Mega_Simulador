@@ -880,7 +880,7 @@ def page_ai(df):
                     data=pdf_bytes,
                     file_name='palpites_megasena_ai.pdf',
                     mime='application/pdf',
-                    type='primary",
+                    type="primary",
                     use_container_width=True
                 )
                 

@@ -1,161 +1,94 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
+import altair as alt
 import warnings
 import time
-import random
-from datetime import datetime
+from fpdf import FPDF
+from sklearn.linear_model import LogisticRegression
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
 
 # =============================================================================
 # CONFIGURAÇÕES INICIAIS
 # =============================================================================
-
 warnings.filterwarnings("ignore")
 
 st.set_page_config(
     layout="wide", 
-    page_title="Mega-Sena AI Pro", 
+    page_title="Análise Mega-Sena AI", 
     page_icon="🎲",
     initial_sidebar_state="collapsed"
 )
 
-# Link do Checkout (Seu Link)
-CHECKOUT_URL = "https://pay.cakto.com.br/5dUKrWD"
+# Constantes Globais
+COLUNAS_BOLAS = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
+ALL_NUMBERS = list(range(1, 61))
 
 # =============================================================================
-# GERENCIAMENTO DE ESTADO (SESSION STATE)
+# 1. DESIGN SYSTEM & CSS
 # =============================================================================
-
-if 'current_page' not in st.session_state:
-    st.session_state['current_page'] = "Previsões AI" # Começa direto na página principal
-if 'usage_count' not in st.session_state:
-    st.session_state.usage_count = 0
-if 'user_email' not in st.session_state:
-    st.session_state.user_email = ""
-if 'premium_unlocked' not in st.session_state:
-    st.session_state.premium_unlocked = False
-
-# =============================================================================
-# 0. DESIGN SYSTEM & CSS
-# =============================================================================
-
 def inject_custom_css():
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap');
-
-        /* REMOVER SIDEBAR E ELEMENTOS PADRÃO */
+        /* 1. REMOVER SIDEBAR E ELEMENTOS PADRÃO */
         section[data-testid="stSidebar"] {{ display: none !important; }}
         #MainMenu {{ visibility: hidden; }}
         footer {{ visibility: hidden; }}
 
-        /* ESTILO GERAL */
+        /* 2. ESTILO GERAL */
         .stApp {{
-            background-color: #050505;
+            background-color: #0E1117;
             color: #E0E0E0;
-            font-family: 'Inter', sans-serif;
         }}
 
-        /* TÍTULOS */
-        h1, h2, h3 {{
-            font-family: 'Inter', sans-serif;
-            font-weight: 800;
-            letter-spacing: -1px;
-        }}
-        h1 {{ 
-            color: #00ff88; 
-            text-align: center;
-            text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
-            margin-bottom: 30px;
-        }}
-
-        /* LOCK SCREEN CONTAINER */
-        .lock-container {{
-            background: rgba(31, 41, 55, 0.5);
-            backdrop-filter: blur(10px);
-            border: 1px solid #ff4444;
-            border-radius: 20px;
+        /* 3. GATE PREMIUM (BLOQUEIO) */
+        .premium-gate {{
+            background: linear-gradient(145deg, #1F2937, #111827);
             padding: 40px;
-            text-align: center;
-            margin: 50px auto;
-            max-width: 600px;
-            box-shadow: 0 0 50px rgba(255, 68, 68, 0.1);
-        }}
-
-        /* INPUT FIELDS */
-        .stTextInput > div > div > input {{
-            background-color: #111;
-            color: #fff;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 12px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 2px solid #00C896;
+            margin-top: 20px;
             text-align: center;
         }}
-        .stTextInput > div > div > input:focus {{
-            border-color: #00ff88;
-            box-shadow: 0 0 15px rgba(0, 255, 136, 0.2);
+        .premium-gate h3 {{ color: #00C896 !important; }}
+        .premium-gate p {{ color: #ccc; margin-bottom: 20px; }}
+
+        /* 4. RESULTADO CARD */
+        .game-card {{
+            background-color: #1F2937;
+            border: 1px solid #374151;
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        .game-numbers {{
+            font-size: 28px;
+            font-weight: bold;
+            color: #00C896;
+            letter-spacing: 3px;
         }}
 
-        /* BOTÕES DE NAVEGAÇÃO */
+        /* 5. BOTÕES */
         div.stButton > button {{
-            background-color: #1a1a1a !important;
-            color: #888 !important;
-            border: 1px solid #333 !important;
-            border-radius: 10px !important;
-            padding: 10px !important;
-            font-weight: 600 !important;
+            background-color: #1F2937 !important;
+            color: #9CA3AF !important;
+            border: 1px solid #374151 !important;
+            border-radius: 12px !important;
             width: 100% !important;
-            transition: all 0.3s ease !important;
         }}
         div.stButton > button:hover {{
-            border-color: #00ff88 !important;
-            color: #00ff88 !important;
-            background-color: #111 !important;
+            border-color: #00C896 !important;
+            color: #00C896 !important;
         }}
-        
-        /* BOTÃO DE AÇÃO PRIMÁRIA (GERAR) */
-        .primary-action button {{
-            background: linear-gradient(90deg, #00ff88, #00cc6a) !important;
-            color: #000 !important;
-            font-weight: 800 !important;
-            border: none !important;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.4) !important;
-        }}
-        .primary-action button:hover {{
-            transform: scale(1.02) !important;
-            box-shadow: 0 0 30px rgba(0, 255, 136, 0.6) !important;
-        }}
-
-        /* METRICS */
-        [data-testid="stMetric"] {{
-            background-color: #111;
-            border: 1px solid #333;
-            border-radius: 12px;
-            padding: 15px;
-            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
-        }}
-        [data-testid="stMetricLabel"] {{ color: #888; }}
-        [data-testid="stMetricValue"] {{ color: #fff; font-family: 'Roboto Mono', monospace; }}
-
-        /* RESULT BALLS */
-        .ball {{
-            display: inline-block;
-            width: 45px;
-            height: 45px;
-            line-height: 45px;
-            background: radial-gradient(circle at 30% 30%, #00ff88, #008f4c);
-            border-radius: 50%;
-            color: #000;
-            font-weight: bold;
-            font-family: 'Roboto Mono', monospace;
-            text-align: center;
-            margin: 5px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        div.stButton > button[kind="primary"] {{
+            border-color: #00C896 !important;
+            color: #00C896 !important;
         }}
         </style>
         """,
@@ -163,235 +96,211 @@ def inject_custom_css():
     )
 
 # =============================================================================
-# 1. CARREGAMENTO DE DADOS (SIMULADO PARA PERFORMANCE)
+# 2. FUNÇÕES AUXILIARES E DE DADOS (SIMULADAS PARA EXECUÇÃO)
 # =============================================================================
 
 @st.cache_data
 def carregar_dados_caixa():
-    # Tenta baixar da URL oficial, se falhar cria dados fictícios para não quebrar a demo
-    url = 'https://servicebus2.caixa.gov.br/portaldasiloterias/api/megasena'
-    try:
-        # Nota: A API da caixa costuma bloquear requisições diretas sem headers específicos.
-        # Para este exemplo funcionar liso, vou gerar um DataFrame realista.
-        # Em produção, você usaria pd.read_html ou a API com requests e headers.
-        
-        # Simulando um Dataset histórico
-        dates = pd.date_range(end=datetime.today(), periods=500)
-        data = {
-            'Concurso': range(2000, 2500),
-            'Data': dates,
-            'Bola1': np.random.randint(1, 10, 500),
-            'Bola2': np.random.randint(11, 20, 500),
-            'Bola3': np.random.randint(21, 30, 500),
-            'Bola4': np.random.randint(31, 40, 500),
-            'Bola5': np.random.randint(41, 50, 500),
-            'Bola6': np.random.randint(51, 60, 500),
-        }
-        df = pd.DataFrame(data)
-        return df
-    except:
-        return pd.DataFrame() # Fallback
+    # Simulação de dados para o exemplo funcionar
+    data = {
+        'Concurso': range(1, 101),
+        'Data': pd.date_range(start='2023-01-01', periods=100),
+    }
+    for col in COLUNAS_BOLAS:
+        data[col] = np.random.randint(1, 61, 100)
+    return pd.DataFrame(data)
+
+def validar_dados(df):
+    return not df.empty
+
+def gerar_pdf_bytes(games):
+    # Gera um PDF simples com os jogos
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=16)
+    pdf.cell(200, 10, txt="Palpites Mega-Sena AI", ln=1, align="C")
+    pdf.ln(10)
+    for i, game in enumerate(games):
+        game_str = " - ".join([str(n).zfill(2) for n in game])
+        pdf.cell(200, 10, txt=f"Jogo {i+1}: {game_str}", ln=1, align="C")
+    return pdf.output(dest='S').encode('latin-1')
 
 # =============================================================================
-# 2. SISTEMA DE NAVEGAÇÃO
+# 3. LÓGICA ML (SIMPLIFICADA DO SEU CÓDIGO)
+# =============================================================================
+
+# (Mantenha suas funções de ML originais aqui. 
+# Para o exemplo rodar, criei esta função de simulação)
+def gerar_jogo_simulado_ai():
+    import random
+    numbers = sorted(random.sample(range(1, 61), 6))
+    return numbers
+
+# =============================================================================
+# 4. PÁGINAS DO SISTEMA
+# =============================================================================
+
+def page_visao_geral(df):
+    st.header("📊 Visão Geral")
+    st.info("Estatísticas gerais dos sorteios carregados.")
+    st.dataframe(df.tail(10), use_container_width=True)
+
+def page_frequencia(df): st.info("Análise de Frequência (Em desenvolvimento)")
+def page_pares_impares(df): st.info("Análise Pares/Ímpares (Em desenvolvimento)")
+def page_combinacoes(df): st.info("Análise de Combinações (Em desenvolvimento)")
+def page_quentes(df): st.info("Números Quentes e Frios (Em desenvolvimento)")
+def page_somas(df): st.info("Análise de Somas (Em desenvolvimento)")
+
+# =============================================================================
+# 5. PÁGINA GERADOR COM BLOQUEIO (CRÍTICO)
+# =============================================================================
+
+def page_ai(df):
+    st.title("🤖 Gerador de Jogos com IA")
+    
+    # --- CONTROLE DE ESTADO (SESSION STATE) ---
+    if 'games_generated_count' not in st.session_state:
+        st.session_state['games_generated_count'] = 0
+        
+    if 'generated_games_history' not in st.session_state:
+        st.session_state['generated_games_history'] = []
+
+    if 'is_premium' not in st.session_state:
+        st.session_state['is_premium'] = False  # Mude para True via callback de pagamento real
+
+    col_config, col_result = st.columns([1, 2])
+
+    with col_config:
+        st.subheader("Configuração")
+        st.write("O modelo utiliza regressão logística calibrada para identificar padrões.")
+        
+        # LÓGICA DE BLOQUEIO
+        # Permite gerar se for premium OU se contagem < 1
+        pode_gerar = st.session_state['is_premium'] or (st.session_state['games_generated_count'] < 1)
+
+        if pode_gerar:
+            st.success(f"Jogos gratuitos restantes: {1 - st.session_state['games_generated_count']}")
+            if st.button("🔮 GERAR JOGO OTIMIZADO", type="primary"):
+                with st.spinner("Processando dados históricos..."):
+                    time.sleep(1.5) # Simula processamento
+                    novo_jogo = gerar_jogo_simulado_ai()
+                    
+                    # Salva no histórico e incrementa contador
+                    st.session_state['generated_games_history'].insert(0, novo_jogo)
+                    st.session_state['games_generated_count'] += 1
+                    st.rerun()
+        else:
+            # --- TELA DE BLOQUEIO (GATE) ---
+            st.markdown("""
+            <div class="premium-gate">
+                <h3>🔒 Limite Atingido</h3>
+                <p>Você utilizou sua geração gratuita de teste.</p>
+                <p style="font-size:0.9rem">Desbloqueie a versão PRO para:</p>
+                <ul style="text-align:left; color:#bbb; margin-bottom:20px">
+                    <li>Gerações Ilimitadas</li>
+                    <li>Download em PDF</li>
+                    <li>Acesso aos algoritmos avançados</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Botão de Pagamento
+            st.link_button(
+                label="🔓 DESBLOQUEAR AGORA (R$ 19,90)", 
+                url="https://seulinkdepagamento.com.br", # <--- COLOQUE SEU LINK AQUI
+                type="primary",
+                use_container_width=True
+            )
+
+    with col_result:
+        st.subheader("Jogos Gerados")
+        
+        history = st.session_state['generated_games_history']
+        
+        if history:
+            # Exibe o jogo mais recente com destaque
+            latest = history[0]
+            str_nums = " - ".join([f"{n:02d}" for n in latest])
+            
+            st.markdown(f"""
+            <div class="game-card">
+                <div style="font-size:14px; color:#aaa; margin-bottom:5px">PALPITE GERADO PELA IA</div>
+                <div class="game-numbers">{str_nums}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Estatísticas do jogo
+            soma = sum(latest)
+            pares = sum(1 for x in latest if x % 2 == 0)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Soma", soma)
+            c2.metric("Pares", pares)
+            c3.metric("Ímpares", 6 - pares)
+            
+            st.divider()
+            
+            # Botão de PDF (Disponível apenas para o jogo gerado ou bloqueado também?)
+            # Aqui deixei disponível para baixar o jogo gratuito
+            pdf_data = gerar_pdf_bytes([latest])
+            st.download_button(
+                label="📄 Baixar Jogo em PDF",
+                data=pdf_data,
+                file_name="jogo_mega_ai.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+        else:
+            st.info("Clique em Gerar para iniciar a análise.")
+
+# =============================================================================
+# 6. NAVEGAÇÃO E MAIN
 # =============================================================================
 
 def draw_navigation():
-    # Menu superior estilizado
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    pages = ["Visão Geral", "Frequência", "Pares/Impares", "Combinações", "Quentes/Frios", "∑ Somas", "Previsões AI"]
     
-    # Se estiver bloqueado, esconde a navegação para forçar o foco no desbloqueio
-    if st.session_state.usage_count >= 1 and not st.session_state.premium_unlocked:
-        return
-
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if st.button("🔮 Previsões AI", key="nav_ai"):
-            st.session_state['current_page'] = "Previsões AI"
+    if 'current_page' not in st.session_state:
+        st.session_state['current_page'] = "Previsões AI" # Inicia na página da AI para teste
+        
+    cols = st.columns(len(pages))
+    for i, page_name in enumerate(pages):
+        # Destaca o botão da página atual
+        is_active = st.session_state['current_page'] == page_name
+        if cols[i].button(
+            page_name.replace(" ", "\n"), 
+            key=f"nav_{i}", 
+            type="primary" if is_active else "secondary"
+        ):
+            st.session_state['current_page'] = page_name
             st.rerun()
-    with col2:
-        if st.button("📊 Estatísticas", key="nav_stats"):
-            st.session_state['current_page'] = "Estatísticas"
-            st.rerun()
-    with col3:
-        if st.button("🔥 Quentes/Frios", key="nav_hot"):
-            st.session_state['current_page'] = "Quentes/Frios"
-            st.rerun()
-    with col4:
-        # Botão especial de Checkout
-        st.link_button("💎 SEJA PREMIUM", CHECKOUT_URL)
-
-    st.markdown("---")
-
-# =============================================================================
-# 3. PÁGINAS DO SISTEMA
-# =============================================================================
-
-def page_estatisticas(df):
-    st.header("📊 Análise Estatística Global")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total de Concursos", "2.500")
-    c2.metric("Média de Pares", "3.2")
-    c3.metric("Soma Média", "185")
-    
-    st.info("Para ver gráficos avançados e tendências históricas, desbloqueie a versão PRO.")
-
-def page_quentes_frios(df):
-    st.header("🔥 Números Quentes & Frios ❄️")
-    st.markdown("Algoritmo de análise de frequência dos últimos 100 jogos.")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("🔥 Mais Sorteados")
-        st.markdown("""
-        1. **10** - (Saiu 18x)
-        2. **53** - (Saiu 15x)
-        3. **05** - (Saiu 14x)
-        """)
-    with c2:
-        st.subheader("❄️ Mais Atrasados")
-        st.markdown("""
-        1. **42** - (40 jogos sem sair)
-        2. **01** - (32 jogos sem sair)
-        3. **22** - (28 jogos sem sair)
-        """)
-
-# --- PÁGINA PRINCIPAL: A IA PREDITIVA ---
-def page_ai(df):
-    st.title("🔮 Inteligência Artificial Preditiva")
-    
-    # LÓGICA DE BLOQUEIO (GATE)
-    # Se o usuário já gerou 1 vez E não desbloqueou com e-mail
-    if st.session_state.usage_count >= 1 and not st.session_state.premium_unlocked:
-        
-        # TELA DE BLOQUEIO
-        st.markdown(f"""
-        <div class="lock-container">
-            <h1 style="color: #ff4444; margin-bottom: 10px;">🔒 LIMITE GRATUITO ATINGIDO</h1>
-            <p style="font-size: 1.2rem; margin-bottom: 20px;">
-                Você gerou 1 jogo com sucesso usando nossa IA.<br>
-                Para continuar gerando palpites e baixar o PDF, identifique-se.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            email = st.text_input("📧 Insira seu melhor e-mail para liberar:", placeholder="ex: seu@email.com")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.button("DESBLOQUEAR SISTEMA AGORA 🔓", type="primary", use_container_width=True):
-                if "@" in email and "." in email:
-                    st.session_state.user_email = email
-                    
-                    # Simulação de processamento/validação
-                    with st.spinner("Validando credenciais..."):
-                        time.sleep(1.5)
-                        
-                        # REDIRECIONA PARA O CHECKOUT E "DESBLOQUEIA"
-                        # Nota: Em um app real, o desbloqueio aconteceria APÓS o pagamento (via webhook)
-                        # Mas aqui seguimos a lógica solicitada de "bloqueio pedindo email".
-                        st.session_state.premium_unlocked = True 
-                        st.markdown(f'<meta http-equiv="refresh" content="0;url={CHECKOUT_URL}" />', unsafe_allow_html=True)
-                else:
-                    st.error("Por favor, insira um e-mail válido.")
-            
-            st.caption("🔒 Seus dados estão seguros. Ao continuar você será redirecionado para concluir o acesso Vitalício.")
-
-    else:
-        # TELA DE GERAÇÃO (LIBERADA 1 VEZ)
-        st.markdown("""
-        <div style="background: rgba(0,255,136,0.05); padding: 20px; border-radius: 10px; border: 1px solid #00ff88; margin-bottom: 30px;">
-            <strong>Status do Sistema:</strong> <span style="color:#00ff88">ONLINE</span> | 
-            <strong>Modelo:</strong> Random Forest Regressor v4.2
-        </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("⚙️ Configuração")
-            qtd_jogos = st.slider("Quantidade de Jogos", 1, 10, 1) # Limitado visualmente a 1
-            estrategia = st.selectbox("Estratégia", ["Equilíbrio Matemático", "Ousadia (Mais Ímpares)", "Conservador (Mais Pares)"])
-        
-        with col2:
-            st.subheader("🚀 Processamento")
-            st.write("O modelo irá analisar os últimos 2500 concursos para encontrar padrões de recorrência.")
-            
-            # Espaço para o botão
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Botão com classe CSS customizada
-            st.markdown('<div class="primary-action">', unsafe_allow_html=True)
-            if st.button("GERAR PALPITE COM I.A.", use_container_width=True):
-                
-                # BARRA DE PROGRESSO FAKE (DOPAMINA)
-                progress_text = "Conectando à Rede Neural..."
-                my_bar = st.progress(0, text=progress_text)
-                
-                steps = ["Analisando frequências...", "Calculando desvio padrão...", "Aplicando filtros de paridade...", "Gerando combinação otimizada..."]
-                
-                for i, step in enumerate(steps):
-                    time.sleep(0.5)
-                    my_bar.progress((i + 1) * 25, text=step)
-                
-                time.sleep(0.5)
-                my_bar.empty()
-                
-                # GERAR NÚMEROS ALEATÓRIOS (SIMULANDO IA)
-                palpite = sorted(random.sample(range(1, 61), 6))
-                
-                # EXIBIR RESULTADO
-                st.success("✅ Palpite Gerado com Sucesso!")
-                
-                html_balls = ""
-                for num in palpite:
-                    html_balls += f"<div class='ball'>{num:02d}</div>"
-                
-                st.markdown(f"<div style='text-align:center; margin: 20px 0;'>{html_balls}</div>", unsafe_allow_html=True)
-                
-                # Análise Rápida do Jogo Gerado
-                st.markdown("### 🔍 Análise do Jogo")
-                sa1, sa2, sa3 = st.columns(3)
-                sa1.metric("Probabilidade Estimada", "1 em 450k")
-                sa2.metric("Soma das Dezenas", sum(palpite))
-                sa3.metric("Pares / Ímpares", f"{len([x for x in palpite if x%2==0])} / {len([x for x in palpite if x%2!=0])}")
-
-                # INCREMENTAR CONTADOR (IMPORTANTE)
-                # Isso vai travar a tela na próxima atualização
-                st.session_state.usage_count += 1
-                
-                if st.session_state.usage_count >= 1:
-                    st.warning("⚠️ Você utilizou seu crédito gratuito. Salve este jogo agora!")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-# =============================================================================
-# MAIN
-# =============================================================================
 
 def main():
     inject_custom_css()
     
-    # Header Principal
-    if st.session_state.usage_count == 0 or st.session_state.premium_unlocked:
-        # Só mostra navegação se não estiver na tela de bloqueio
-        draw_navigation()
+    st.markdown("# 🎲 Mega-Sena Analyzer Pro")
     
-    # Carregar Dados (apenas se necessário)
+    # Carregar dados
     df = carregar_dados_caixa()
+    if not validar_dados(df):
+        st.error("Erro ao carregar banco de dados.")
+        return
+
+    # Navegação
+    draw_navigation()
+    st.markdown("---")
 
     # Roteamento
-    page = st.session_state['current_page']
-
-    if page == "Previsões AI":
-        page_ai(df)
-    elif page == "Estatísticas":
-        page_estatisticas(df)
-    elif page == "Quentes/Frios":
-        page_quentes_frios(df)
+    pg = st.session_state['current_page']
+    
+    if pg == "Visão Geral": page_visao_geral(df)
+    elif pg == "Frequência": page_frequencia(df)
+    elif pg == "Pares/Impares": page_pares_impares(df)
+    elif pg == "Combinações": page_combinacoes(df)
+    elif pg == "Quentes/Frios": page_quentes(df)
+    elif pg == "∑ Somas": page_somas(df)
+    elif pg == "Previsões AI": page_ai(df)
 
 if __name__ == "__main__":
     main()
+

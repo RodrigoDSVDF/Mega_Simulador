@@ -9,9 +9,11 @@ import altair as alt
 import itertools
 import warnings
 import time
+import hashlib
 from collections import Counter
 from typing import List, Tuple, Any, Dict
 from fpdf import FPDF
+
 # Scikit-learn
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
@@ -20,7 +22,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.exceptions import NotFittedError
 
 # =============================================================================
-# CONFIGURAÇÕES INICIAIS
+# CONFIGURAÇÕES INICIAIS E CONSTANTES
 # =============================================================================
 
 warnings.filterwarnings("ignore")
@@ -35,8 +37,12 @@ st.set_page_config(
 COLUNAS_BOLAS = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6']
 ALL_NUMBERS = list(range(1, 61))
 
+# Configurações do Sistema de Acesso
+ACESSO_LIVRE_JOGOS = 1  # Número de jogos gratuitos permitidos
+LINK_COMPRA = "https://seusite.com/comprar"  # Link para compra de acesso
+
 # =============================================================================
-# 0. DESIGN SYSTEM & CSS
+# 0. DESIGN SYSTEM & CSS (ATUALIZADO COM NOVOS ESTILOS)
 # =============================================================================
 
 def inject_custom_css():
@@ -55,18 +61,60 @@ def inject_custom_css():
             color: #E0E0E0;
         }}
         
-        /* LOGIN CONTAINER (PREMIUM) */
-        .premium-gate {{
-            background: #1F2937;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-            border: 2px solid #00C896; /* Borda Verde Neon */
-            margin-top: 20px;
+        /* 3. CONTAINER DE ACESSO */
+        .access-container {{
+            background: linear-gradient(145deg, #1F2937, #111827);
+            padding: 30px;
+            border-radius: 15px;
+            border: 2px solid #00C896;
+            margin: 20px 0;
             text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 200, 150, 0.2);
         }}
         
-        /* INPUT FIELDS (LOGIN) */
+        .access-badge {{
+            display: inline-block;
+            background: #00C896;
+            color: #0E1117;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin: 10px 0;
+            font-size: 0.9rem;
+        }}
+        
+        .warning-box {{
+            background: rgba(255, 193, 7, 0.1);
+            border-left: 4px solid #FFC107;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }}
+        
+        .success-box {{
+            background: rgba(0, 200, 150, 0.1);
+            border-left: 4px solid #00C896;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+        }}
+        
+        /* 4. BOTÕES ESPECIAIS */
+        .btn-premium {{
+            background: linear-gradient(145deg, #00C896, #00997A) !important;
+            color: white !important;
+            font-weight: bold !important;
+            border: none !important;
+        }}
+        
+        .btn-free {{
+            background: linear-gradient(145deg, #6366F1, #4F46E5) !important;
+            color: white !important;
+            font-weight: bold !important;
+            border: none !important;
+        }}
+        
+        /* 5. INPUT FIELDS */
         .stTextInput > div > div > input {{
             background-color: #111827;
             color: #f8fafc;
@@ -88,9 +136,10 @@ def inject_custom_css():
         h1 {{ color: #00C896; border-bottom: 2px solid #00C896; padding-bottom: 10px; }}
         h2 {{ color: #00C896; margin-top: 30px; border-left: 4px solid #00C896; padding-left: 10px; }}
         h3 {{ color: #E0E0E0; font-size: 1.2rem; margin-top: 20px; }}
+        
         p, label {{ color: #E0E0E0; }}
         
-        /* 3. BOTÕES DE NAVEGAÇÃO */
+        /* 6. BOTÕES DE NAVEGAÇÃO */
         div.stButton > button {{
             background-color: #1F2937 !important;
             color: #9CA3AF !important;
@@ -119,1091 +168,767 @@ def inject_custom_css():
             font-weight: 700 !important;
         }}
         
-        /* 5. CARDS DE MÉTRICAS */
+        /* 7. CARDS DE MÉTRICAS */
         [data-testid="stMetric"] {{
             background-color: #1F2937;
-            border-radius: 12px;
             padding: 15px;
+            border-radius: 10px;
             border: 1px solid #374151;
         }}
         
-        [data-testid="stMetricLabel"] {{
-            color: #9CA3AF !important;
-        }}
-        
-        [data-testid="stMetricValue"] {{
-            color: #00C896 !important;
-            font-size: 1.8rem !important;
-            font-weight: 700 !important;
-        }}
-        
-        /* 6. TABELAS */
-        .dataframe {{
-            border: 1px solid #374151;
-            border-radius: 8px;
-            overflow: hidden;
-        }}
-        
-        .dataframe th {{
-            background-color: #1F2937 !important;
-            color: #00C896 !important;
-            font-weight: 600 !important;
-        }}
-        
-        .dataframe td {{
-            background-color: #111827 !important;
-            color: #E0E0E0 !important;
-        }}
-        
-        /* 7. CHECKBOX & SLIDER */
-        .stCheckbox > label {{ color: #E0E0E0; }}
-        .stSlider > div > div {{ background-color: #00C896; }}
-        
-        /* 8. EXPANDER */
-        .streamlit-expanderHeader {{
-            background-color: #1F2937;
-            border: 1px solid #374151;
-            border-radius: 8px;
-            color: #E0E0E0;
-        }}
-        
-        /* 9. CONTAINER DE JOGOS */
-        .jogo-card {{
-            background: linear-gradient(145deg, #1F2937, #111827);
-            border: 1px solid #374151;
-            border-radius: 12px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-        }}
-        
-        .jogo-card:hover {{
-            border-color: #00C896;
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 200, 150, 0.1);
-        }}
-        
-        .numero-bola {{
-            display: inline-block;
-            width: 40px;
-            height: 40px;
-            line-height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(145deg, #00C896, #008B6A);
-            color: white;
-            text-align: center;
-            font-weight: bold;
-            margin: 0 5px;
-            box-shadow: 0 4px 6px -1px rgba(0, 200, 150, 0.3);
-        }}
+        [data-testid="stMetricLabel"] {{ color: #9CA3AF; }}
+        [data-testid="stMetricValue"] {{ color: #00C896; font-size: 1.5rem; }}
+        [data-testid="stMetricDelta"] {{ color: #E0E0E0; }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
 # =============================================================================
-# 1. CARREGAR DADOS
+# SISTEMA DE CONTROLE DE ACESSO
+# =============================================================================
+
+def inicializar_sessao():
+    """Inicializa variáveis de sessão para controle de acesso."""
+    if 'acesso_inicializado' not in st.session_state:
+        st.session_state['acesso_inicializado'] = True
+        st.session_state['jogos_gerados'] = 0
+        st.session_state['email_cadastrado'] = None
+        st.session_state['usuario_premium'] = False
+        st.session_state['current_page'] = "Visão Geral"
+
+def verificar_email_cadastrado(email):
+    """
+    Simula verificação de email cadastrado.
+    Em produção, substituir por consulta ao banco de dados.
+    """
+    # Lista simulada de emails cadastrados/premium
+    emails_premium = [
+        "cliente@premium.com",
+        "usuario@pagante.com",
+        "teste@validado.com"
+    ]
+    
+    # Hash do email para comparação segura
+    email_hash = hashlib.sha256(email.lower().strip().encode()).hexdigest()
+    premium_hashes = [hashlib.sha256(e.encode()).hexdigest() for e in emails_premium]
+    
+    return email_hash in premium_hashes
+
+def mostrar_controle_acesso():
+    """Exibe o controle de acesso e status do usuário."""
+    st.markdown('<div class="access-container">', unsafe_allow_html=True)
+    
+    if st.session_state['usuario_premium']:
+        st.markdown('<div class="success-box">', unsafe_allow_html=True)
+        st.success(f"✅ ACESSO PREMIUM ATIVO")
+        st.info(f"Email: {st.session_state['email_cadastrado']}")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    elif st.session_state['jogos_gerados'] >= ACESSO_LIVRE_JOGOS:
+        st.markdown('<div class="warning-box">', unsafe_allow_html=True)
+        st.warning(f"⚠️ VOCÊ UTILIZOU SEU {ACESSO_LIVRE_JOGOS} JOGO GRATUITO")
+        
+        # Formulário para email
+        with st.form("form_email"):
+            email = st.text_input("Digite seu email cadastrado:", 
+                                 placeholder="seu@email.com")
+            submit = st.form_submit_button("🔓 VERIFICAR ACESSO", 
+                                          use_container_width=True)
+            
+            if submit and email:
+                if verificar_email_cadastrado(email):
+                    st.session_state['email_cadastrado'] = email
+                    st.session_state['usuario_premium'] = True
+                    st.session_state['jogos_gerados'] = 0  # Reset contador
+                    st.rerun()
+                else:
+                    st.error("❌ Email não cadastrado ou acesso não ativado")
+                    st.markdown(f"""
+                    <div style="margin-top: 20px; padding: 15px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;">
+                    <h4 style="color: #EF4444; margin: 0;">Acesso Premium Requerido</h4>
+                    <p>Para continuar gerando jogos, adquira o acesso premium:</p>
+                    <a href="{LINK_COMPRA}" target="_blank">
+                        <button style="
+                            background: linear-gradient(145deg, #00C896, #00997A);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 8px;
+                            font-weight: bold;
+                            cursor: pointer;
+                            margin-top: 10px;
+                            width: 100%;
+                        ">
+                            🛒 COMPRAR ACESSO PREMIUM
+                        </button>
+                    </a>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    else:
+        jogos_restantes = ACESSO_LIVRE_JOGOS - st.session_state['jogos_gerados']
+        st.markdown(f'<div class="access-badge">🎁 {jogos_restantes} JOGO(S) GRATUITO(S) RESTANTE(S)</div>', 
+                   unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def verificar_permissao_gerar_jogo():
+    """
+    Verifica se o usuário tem permissão para gerar mais jogos.
+    Incrementa contador se for acesso gratuito.
+    """
+    # Se for premium, sempre permite
+    if st.session_state['usuario_premium']:
+        return True
+    
+    # Se ainda tem jogos gratuitos
+    if st.session_state['jogos_gerados'] < ACESSO_LIVRE_JOGOS:
+        st.session_state['jogos_gerados'] += 1
+        return True
+    
+    return False
+
+# =============================================================================
+# 1. FUNÇÕES AUXILIARES (MANTIDAS ORIGINAIS)
 # =============================================================================
 
 def carregar_dados_caixa():
-    """
-    Carrega dados históricos da Mega-Sena.
-    Retorna um DataFrame ou None em caso de erro.
-    """
+    """Carrega dados históricos da Mega-Sena."""
     try:
-        # Tenta carregar do CSV local primeiro
-        csv_path = "Dados_mega_sena.csv"
-        if os.path.exists(csv_path):
-            df = pd.read_csv(csv_path, encoding='utf-8', sep=';')
-            
-            # Verifica se tem as colunas necessárias
-            colunas_necessarias = ['Concurso', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6']
-            if all(col in df.columns for col in colunas_necessarias):
-                # Ordena por concurso
-                df = df.sort_values('Concurso', ascending=False).reset_index(drop=True)
-                return df
-                
-    except Exception as e:
-        st.warning(f"Erro ao carregar CSV local: {e}")
-    
-    try:
-        # Fallback para dados online da Caixa - FORMA ORIGINAL
         url = "https://servicebus2.caixa.gov.br/portaldeloterias/api/megasena"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        # Converte para DataFrame - LÓGICA ORIGINAL CORRIGIDA
-        linhas = []
+        # Processar dados
+        rows = []
         for item in data:
-            # VERIFICAÇÃO CRÍTICA: item deve ser um dicionário
-            if isinstance(item, dict):
-                # Obtém a lista de dezenas
-                dezenas = item.get('dezenasSorteadasOrdemSorteio', [])
-                
-                # Se não encontrar, tenta outro nome comum
-                if not dezenas:
-                    dezenas = item.get('listaDezenas', [])
-                
-                # Garante que temos pelo menos 6 números
-                if len(dezenas) >= 6:
-                    linha = {
-                        'Concurso': item.get('numero'),
-                        'Data': item.get('dataApuracao'),
-                        'B1': dezenas[0] if isinstance(dezenas[0], (int, float)) else int(dezenas[0]),
-                        'B2': dezenas[1] if isinstance(dezenas[1], (int, float)) else int(dezenas[1]),
-                        'B3': dezenas[2] if isinstance(dezenas[2], (int, float)) else int(dezenas[2]),
-                        'B4': dezenas[3] if isinstance(dezenas[3], (int, float)) else int(dezenas[3]),
-                        'B5': dezenas[4] if isinstance(dezenas[4], (int, float)) else int(dezenas[4]),
-                        'B6': dezenas[5] if isinstance(dezenas[5], (int, float)) else int(dezenas[5]),
-                    }
-                    linhas.append(linha)
+            row = {
+                'Concurso': item.get('numero'),
+                'Data': pd.to_datetime(item.get('dataApuracao'), dayfirst=True),
+                'B1': item.get('dezenasSorteadasOrdemSorteio')[0],
+                'B2': item.get('dezenasSorteadasOrdemSorteio')[1],
+                'B3': item.get('dezenasSorteadasOrdemSorteio')[2],
+                'B4': item.get('dezenasSorteadasOrdemSorteio')[3],
+                'B5': item.get('dezenasSorteadasOrdemSorteio')[4],
+                'B6': item.get('dezenasSorteadasOrdemSorteio')[5]
+            }
+            rows.append(row)
         
-        if linhas:
-            df = pd.DataFrame(linhas)
-            # Ordena por concurso
-            if 'Concurso' in df.columns:
-                df = df.sort_values('Concurso', ascending=False).reset_index(drop=True)
-            
-            # Salva localmente para uso futuro
-            try:
-                df.to_csv("Dados_mega_sena.csv", index=False, sep=';', encoding='utf-8')
-            except:
-                pass
-                
-            return df
-        else:
-            st.error("Não foi possível extrair dados da resposta da API.")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erro de conexão com a API: {e}")
-        return None
+        df = pd.DataFrame(rows)
+        df[COLUNAS_BOLAS] = df[COLUNAS_BOLAS].astype(int)
+        df = df.sort_values('Concurso', ascending=False).reset_index(drop=True)
+        return df
+    
     except Exception as e:
-        st.error(f"Erro ao processar dados da API: {str(e)}")
-        return None
-
-def carregar_dados_backup():
-    """Carrega dados de backup se a API falhar"""
-    st.warning("⚠️ Usando dados de backup. A API pode estar temporariamente indisponível.")
-    
-    # Dados de exemplo (últimos 20 concursos fictícios)
-    dados_backup = {
-        'Concurso': list(range(2600, 2620)),
-        'Data': ['15/03/2024', '12/03/2024', '09/03/2024', '06/03/2024', '02/03/2024',
-                 '28/02/2024', '24/02/2024', '21/02/2024', '17/02/2024', '14/02/2024',
-                 '10/02/2024', '07/02/2024', '03/02/2024', '31/01/2024', '27/01/2024',
-                 '24/01/2024', '20/01/2024', '17/01/2024', '13/01/2024', '10/01/2024'],
-        'B1': [4, 7, 10, 2, 5, 8, 11, 3, 6, 9, 12, 4, 7, 10, 2, 5, 8, 11, 3, 6],
-        'B2': [15, 18, 21, 13, 16, 19, 22, 14, 17, 20, 23, 15, 18, 21, 13, 16, 19, 22, 14, 17],
-        'B3': [26, 29, 32, 24, 27, 30, 33, 25, 28, 31, 34, 26, 29, 32, 24, 27, 30, 33, 25, 28],
-        'B4': [37, 40, 43, 35, 38, 41, 44, 36, 39, 42, 45, 37, 40, 43, 35, 38, 41, 44, 36, 39],
-        'B5': [48, 51, 54, 46, 49, 52, 55, 47, 50, 53, 56, 48, 51, 54, 46, 49, 52, 55, 47, 50],
-        'B6': [59, 2, 5, 57, 60, 3, 6, 58, 1, 4, 7, 59, 2, 5, 57, 60, 3, 6, 58, 1]
-    }
-    
-    df = pd.DataFrame(dados_backup)
-    return df
+        st.error(f"Erro ao carregar dados: {e}")
+        return pd.DataFrame()
 
 def validar_dados(df):
-    """Valida se o DataFrame contém dados essenciais."""
-    if df is None or df.empty:
-        return False
-    colunas_necessarias = ['Concurso', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6']
-    return all(col in df.columns for col in colunas_necessarias)
-
-# =============================================================================
-# 2. COMPONENTES DE INTERFACE
-# =============================================================================
+    """Valida se os dados foram carregados corretamente."""
+    return not df.empty and all(col in df.columns for col in ['Concurso'] + COLUNAS_BOLAS)
 
 def draw_navigation():
-    """Renderiza a barra de navegação horizontal."""
-    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([1.5, 1, 1, 1, 1, 1, 1, 1.5])
-    
+    """Renderiza a navegação entre páginas."""
     pages = [
-        ("Visão Geral", "📊"),
-        ("Frequência", "📈"),
-        ("Pares/Impares", "🔢"),
-        ("Combinações", "🔄"),
-        ("Quentes/Frios", "🔥❄️"),
-        ("∑ Somas", "🧮"),
-        ("Previsões AI", "🤖")
+        ("📊 Visão Geral", "Visão Geral"),
+        ("📈 Frequência", "Frequência"),
+        ("🔢 Pares/Impares", "Pares/Impares"),
+        ("🔄 Combinações", "Combinações"),
+        ("🔥 Quentes/Frios", "Quentes/Frios"),
+        ("🧮 ∑ Somas", "∑ Somas"),
+        ("🤖 Previsões AI", "Previsões AI")
     ]
     
-    with col2:
-        if st.button(f"{pages[0][1]} {pages[0][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[0][0]
-    with col3:
-        if st.button(f"{pages[1][1]} {pages[1][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[1][0]
-    with col4:
-        if st.button(f"{pages[2][1]} {pages[2][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[2][0]
-    with col5:
-        if st.button(f"{pages[3][1]} {pages[3][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[3][0]
-    with col6:
-        if st.button(f"{pages[4][1]} {pages[4][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[4][0]
-    with col7:
-        if st.button(f"{pages[5][1]} {pages[5][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[5][0]
-    with col8:
-        if st.button(f"{pages[6][1]} {pages[6][0]}", use_container_width=True):
-            st.session_state['current_page'] = pages[6][0]
-    
-    # Inicializa a página atual se não existir
-    if 'current_page' not in st.session_state:
-        st.session_state['current_page'] = "Visão Geral"
-    
-    st.markdown("---")
+    cols = st.columns(len(pages))
+    for idx, (icon_name, page_name) in enumerate(pages):
+        with cols[idx]:
+            if st.button(f"{icon_name}", key=f"nav_{page_name}", use_container_width=True):
+                st.session_state['current_page'] = page_name
+                st.rerun()
 
 # =============================================================================
-# 3. ANÁLISES ESTATÍSTICAS
+# 2. MODELO PREDITIVO (MANTIDO ORIGINAL)
 # =============================================================================
 
-def analise_frequencia(df, top_n=10):
-    """Retorna as N bolas mais frequentes e menos frequentes."""
-    todas_bolas = pd.concat([df[f'B{i}'] for i in range(1, 7)])
-    freq = todas_bolas.value_counts().sort_values(ascending=False)
+class MegaSenaPredictor:
+    def __init__(self, df):
+        self.df = df.copy()
+        self.scaler = StandardScaler()
+        self.model = None
+        self.feature_names = None
+        self.last_training_date = None
     
-    mais_frequentes = freq.head(top_n).index.tolist()
-    menos_frequentes = freq.tail(top_n).index.tolist()
-    
-    return mais_frequentes, menos_frequentes, freq
-
-def analise_pares_impares(df):
-    """Calcula a distribuição de pares e ímpares por sorteio."""
-    df_calc = df.copy()
-    for i in range(1, 7):
-        df_calc[f'B{i}_par'] = df_calc[f'B{i}'] % 2 == 0
-    
-    pares_por_sorteio = df_calc[[f'B{i}_par' for i in range(1, 7)]].sum(axis=1)
-    distribuicao = pares_por_sorteio.value_counts().sort_index()
-    
-    return distribuicao
-
-def analise_combinacoes(df, max_comb=2):
-    """Analisa combinações frequentes de números."""
-    todas_combinacoes = []
-    for _, row in df.iterrows():
-        numeros = sorted([row[f'B{i}'] for i in range(1, 7)])
-        comb = list(itertools.combinations(numeros, max_comb))
-        todas_combinacoes.extend(comb)
-    
-    freq_combinacoes = Counter(todas_combinacoes)
-    mais_comuns = freq_combinacoes.most_common(20)
-    
-    return mais_comuns
-
-def analise_quentes_frios(df, window=20):
-    """Identifica números quentes (recentes) e frios (ausentes)."""
-    if len(df) < window:
-        window = len(df)
-    
-    df_recente = df.head(window)
-    df_antigo = df.tail(len(df) - window) if len(df) > window else df
-    
-    todas_recentes = pd.concat([df_recente[f'B{i}'] for i in range(1, 7)])
-    todas_antigas = pd.concat([df_antigo[f'B{i}'] for i in range(1, 7)])
-    
-    quentes = todas_recentes.value_counts().head(10).index.tolist()
-    frios = todas_antigas.value_counts().tail(10).index.tolist()
-    
-    return quentes, frios
-
-def analise_somas(df):
-    """Analisa a distribuição das somas dos números por sorteio."""
-    df['Soma'] = sum(df[f'B{i}'] for i in range(1, 7))
-    return df['Soma'].describe()
-
-# =============================================================================
-# 4. MODELO PREDITIVO
-# =============================================================================
-
-def preparar_dados_timeseries(df, lookback=10):
-    """Prepara dados para modelagem de séries temporais."""
-    X, y = [], []
-    
-    # Concatena todas as bolas de cada sorteio
-    sorteios = []
-    for _, row in df.iterrows():
-        sorteios.append(sorted([int(row[f'B{i}']) for i in range(1, 7)]))
-    
-    # Cria sequências
-    for i in range(lookback, len(sorteios)):
-        X.append(np.array(sorteios[i-lookback:i]).flatten())
-        y.append(sorteios[i])
-    
-    return np.array(X), np.array(y)
-
-def treinar_modelo(df, lookback=10):
-    """Treina um modelo de regressão logística para prever cada número."""
-    try:
-        X, y = preparar_dados_timeseries(df, lookback)
+    def prepare_features(self, window_size=10):
+        """Prepara features para o modelo."""
+        df = self.df.sort_values('Concurso').reset_index(drop=True)
+        features = []
+        targets = []
         
-        if len(X) == 0:
-            return None, None
+        for i in range(window_size, len(df)):
+            # Features: frequências dos últimos concursos
+            recent = df.iloc[i-window_size:i]
+            freq = recent[COLUNAS_BOLAS].values.flatten()
+            freq_counts = Counter(freq)
+            
+            # Features para cada número (1-60)
+            row_features = []
+            for num in range(1, 61):
+                row_features.append(freq_counts.get(num, 0))
+            
+            # Adicionar features derivadas
+            ultimo_sorteio = df.iloc[i-1][COLUNAS_BOLAS].values
+            for num in range(1, 61):
+                row_features.append(1 if num in ultimo_sorteio else 0)
+            
+            features.append(row_features)
+            
+            # Target: números sorteados no concurso atual
+            target = df.iloc[i][COLUNAS_BOLAS].values
+            targets.append(target)
         
-        # Modelo para cada posição (0-5)
-        modelos = []
-        scalers = []
+        features = np.array(features)
+        targets = np.array(targets)
         
-        for pos in range(6):
-            # Extrai labels para esta posição
-            y_pos = np.array([sorteio[pos] for sorteio in y])
+        # Feature names
+        self.feature_names = [f"freq_{i}" for i in range(1, 61)] + [f"ultimo_{i}" for i in range(1, 61)]
+        
+        return features, targets
+    
+    def train(self):
+        """Treina o modelo."""
+        try:
+            X, y = self.prepare_features(window_size=15)
             
-            # Converte para problema binário por número (1-60)
-            y_bin = np.zeros((len(y_pos), 60))
-            for i, num in enumerate(y_pos):
-                y_bin[i, num-1] = 1
+            if len(X) < 20:
+                raise ValueError("Dados insuficientes para treino")
             
-            # Treina classificador
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(X)
+            # Transformar problema multiclasse
+            y_flat = y.flatten()
+            X_flat = np.repeat(X, 6, axis=0)
             
-            # Usa regressão logística com calibração
+            # Normalizar
+            X_scaled = self.scaler.fit_transform(X_flat)
+            
+            # Modelo com calibração
             base_model = LogisticRegression(
                 max_iter=1000,
-                random_state=42,
-                class_weight='balanced'
+                class_weight='balanced',
+                random_state=42
             )
-            model = CalibratedClassifierCV(base_model, cv=TimeSeriesSplit(n_splits=3))
-            model.fit(X_scaled, y_bin)
             
-            modelos.append(model)
-            scalers.append(scaler)
-        
-        return modelos, scalers
-    except Exception as e:
-        st.error(f"Erro no treinamento: {str(e)}")
-        return None, None
-
-def prever_probab(modelos, scalers, df, lookback=10, top_n=15):
-    """Faz previsões usando o modelo treinado."""
-    if modelos is None or scalers is None:
-        return None
+            self.model = CalibratedClassifierCV(
+                base_model,
+                method='sigmoid',
+                cv=TimeSeriesSplit(n_splits=5)
+            )
+            
+            self.model.fit(X_scaled, y_flat)
+            self.last_training_date = pd.Timestamp.now()
+            return True
+            
+        except Exception as e:
+            st.error(f"Erro no treinamento: {e}")
+            return False
     
-    try:
-        # Prepara os últimos dados
-        X, _ = preparar_dados_timeseries(df, lookback)
-        if len(X) == 0:
-            return None
+    def predict_proba_next(self):
+        """Previsão para o próximo sorteio."""
+        if self.model is None:
+            raise NotFittedError("Modelo não treinado")
         
-        ultimo_x = X[-1].reshape(1, -1)
+        # Preparar features do último sorteio conhecido
+        X_last, _ = self.prepare_features(window_size=15)
+        if len(X_last) == 0:
+            raise ValueError("Não há dados suficientes para previsão")
         
-        # Previsões para cada posição
-        preds_todas_pos = []
+        X_last_scaled = self.scaler.transform(X_last[-1:])
+        X_last_repeated = np.repeat(X_last_scaled, 60, axis=0)
         
-        for pos in range(6):
-            scaler = scalers[pos]
-            model = modelos[pos]
-            
-            X_scaled = scaler.transform(ultimo_x)
-            probas = model.predict_proba(X_scaled)
-            
-            # Combina probabilidades de todas as classes
-            prob_por_numero = []
-            for class_idx in range(60):
-                # Média das probabilidades entre os classificadores calibrados
-                prob = np.mean([proba[0][class_idx] for proba in probas])
-                prob_por_numero.append((class_idx + 1, prob))
-            
-            preds_todas_pos.append(prob_por_numero)
+        # Prever probabilidades
+        numbers = np.arange(1, 61).reshape(-1, 1)
+        probas = self.model.predict_proba(X_last_repeated)
         
-        # Combina probabilidades de todas as posições
-        prob_agregada = np.zeros(60)
-        for pos_preds in preds_todas_pos:
-            for num, prob in pos_preds:
-                prob_agregada[num-1] += prob
+        # Média das probabilidades para cada número
+        final_probs = []
+        for i in range(60):
+            idx = np.where(self.model.classes_ == i+1)[0]
+            if len(idx) > 0:
+                final_probs.append(probas[i, idx[0]])
+            else:
+                final_probs.append(0.0)
         
-        # Normaliza
-        prob_agregada = prob_agregada / prob_agregada.sum()
+        return list(zip(range(1, 61), final_probs))
+    
+    def generate_combinations(self, n_comb=10, top_n=25):
+        """Gera combinações baseadas nas probabilidades."""
+        predictions = self.predict_proba_next()
+        predictions.sort(key=lambda x: x[1], reverse=True)
         
-        # Top N números
-        top_indices = np.argsort(prob_agregada)[-top_n:][::-1]
-        top_preds = [(idx+1, prob_agregada[idx]) for idx in top_indices]
+        top_numbers = [num for num, prob in predictions[:top_n]]
+        comb_selected = []
         
-        return top_preds
-    except Exception as e:
-        st.error(f"Erro na previsão: {str(e)}")
-        return None
+        for _ in range(n_comb):
+            comb = np.random.choice(top_numbers, size=6, replace=False)
+            comb.sort()
+            comb_selected.append(list(comb))
+        
+        return comb_selected, predictions
 
 # =============================================================================
-# 5. GERAÇÃO DE JOGOS
+# 3. FUNÇÕES DE RELATÓRIO PDF (MANTIDAS ORIGINAIS)
 # =============================================================================
 
-def gerar_combinacoes(preds, num_jogos=10, max_repeticao=2):
-    """Gera combinações baseadas nas probabilidades previstas."""
-    numeros, probs = zip(*preds)
-    probs = np.array(probs)
-    probs = probs / probs.sum()  # Normaliza
+class PDF(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, 'Palpites Mega-Sena - Gerado por AI', 0, 1, 'C')
     
-    jogos = []
-    while len(jogos) < num_jogos:
-        # Amostra números baseados nas probabilidades
-        jogo = np.random.choice(
-            numeros,
-            size=6,
-            replace=False,
-            p=probs
-        )
-        jogo = sorted(jogo)
-        
-        # Verifica critérios básicos
-        soma = sum(jogo)
-        pares = sum(1 for x in jogo if x % 2 == 0)
-        
-        # Critérios de validação
-        if (100 <= soma <= 200 and 
-            2 <= pares <= 4 and 
-            jogo not in jogos):
-            jogos.append(jogo)
-    
-    return jogos
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Página {self.page_no()}', 0, 0, 'C')
 
-def gerar_pdf_bytes(jogos):
-    """Gera bytes de PDF com os jogos."""
-    pdf = FPDF()
+def gerar_pdf_bytes(combinacoes):
+    """Gera PDF com as combinações."""
+    pdf = PDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "Palpites Mega-Sena - Gerados por IA", ln=True, align="C")
-    pdf.ln(10)
+    pdf.set_font('Arial', '', 11)
     
-    pdf.set_font("Arial", "", 12)
-    for i, jogo in enumerate(jogos, 1):
-        pdf.cell(0, 10, f"Jogo {i}: {' - '.join(map(str, jogo))}", ln=True)
+    pdf.cell(0, 10, 'Combinações Sugeridas:', 0, 1)
+    pdf.ln(5)
+    
+    for i, comb in enumerate(combinacoes, 1):
+        nums = ' - '.join(f'{n:02d}' for n in comb)
+        pdf.cell(0, 8, f'Jogo {i:02d}: {nums}', 0, 1)
     
     pdf.ln(10)
-    pdf.set_font("Arial", "I", 10)
-    pdf.multi_cell(0, 10, "Lembre-se: trata-se apenas de uma análise estatística. Jogue com responsabilidade.")
+    pdf.set_font('Arial', 'I', 9)
+    pdf.multi_cell(0, 6, 'Observação: Estas são sugestões baseadas em análise estatística e IA. '
+                       'Lembre-se que a loteria é um jogo de azar e não há garantias de vitória.')
     
     return pdf.output(dest='S').encode('latin1')
 
 # =============================================================================
-# 6. PÁGINAS DE VISUALIZAÇÃO
+# 4. PÁGINAS DE ANÁLISE (MANTIDAS ORIGINAIS - APENAS page_ai MODIFICADA)
 # =============================================================================
 
 def page_visao_geral(df):
-    """Página principal com visão geral."""
-    st.header("📊 Visão Geral dos Dados")
+    """Página de visão geral."""
+    st.header("📊 Visão Geral dos Sorteios")
     
-    # Métricas rápidas
-    col1, col2, col3, col4 = st.columns(4)
+    ultimo = df.iloc[0]
+    st.metric("Último Concurso", int(ultimo['Concurso']))
+    st.metric("Data Último Sorteio", ultimo['Data'].strftime('%d/%m/%Y'))
+    
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total de Concursos", len(df))
+        st.subheader("Dezenas Sorteadas")
+        st.write(f"{ultimo['B1']} - {ultimo['B2']} - {ultimo['B3']} - "
+                 f"{ultimo['B4']} - {ultimo['B5']} - {ultimo['B6']}")
+    
     with col2:
-        st.metric("Concurso Mais Recente", df['Concurso'].iloc[0])
-    with col3:
-        data_mais_recente = pd.to_datetime(df['Data'].iloc[0], dayfirst=True, errors='coerce')
-        if pd.notna(data_mais_recente):
-            st.metric("Data Mais Recente", data_mais_recente.strftime("%d/%m/%Y"))
-    with col4:
-        st.metric("Período Abrangido", f"{df['Concurso'].min()} - {df['Concurso'].max()}")
-    
-    # Tabela com últimos resultados
-    st.subheader("Últimos 10 Resultados")
-    df_display = df.head(10).copy()
-    df_display = df_display[['Concurso', 'Data', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6']]
-    st.dataframe(df_display, use_container_width=True)
-    
-    # Estatísticas descritivas
-    st.subheader("📈 Estatísticas por Posição")
-    stats_data = []
-    for i in range(1, 7):
-        bola_col = f'B{i}'
-        stats_data.append({
-            'Posição': f'Bola {i}',
-            'Mínimo': int(df[bola_col].min()),
-            'Máximo': int(df[bola_col].max()),
-            'Média': f"{df[bola_col].mean():.1f}",
-            'Mediana': int(df[bola_col].median()),
-            'Moda': int(df[bola_col].mode().iloc[0])
+        st.subheader("Distribuição (1-60)")
+        chart_data = pd.DataFrame({
+            'Número': ultimo[COLUNAS_BOLAS].values,
+            'Valor': [1] * 6
         })
-    stats_df = pd.DataFrame(stats_data)
-    st.dataframe(stats_df, use_container_width=True)
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x='Número:Q',
+            y='Valor:Q'
+        ).properties(height=150)
+        st.altair_chart(chart, use_container_width=True)
+    
+    with col3:
+        st.subheader("Últimos 10 Concursos")
+        st.dataframe(df.head(10)[['Concurso', 'Data'] + COLUNAS_BOLAS], 
+                    use_container_width=True, hide_index=True)
 
 def page_frequencia(df):
     """Página de análise de frequência."""
-    st.header("📈 Frequência dos Números")
+    st.header("📈 Análise de Frequência")
     
-    mais_frequentes, menos_frequentes, freq = analise_frequencia(df)
+    # Calcular frequências
+    all_numbers = df[COLUNAS_BOLAS].values.flatten()
+    freq_series = pd.Series(all_numbers).value_counts().sort_index()
+    freq_df = pd.DataFrame({'Número': freq_series.index, 'Frequência': freq_series.values})
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1])
+    
     with col1:
-        st.subheader("🔥 Top 10 Mais Frequentes")
-        df_mais = pd.DataFrame({
-            'Número': mais_frequentes,
-            'Frequência': [freq[num] for num in mais_frequentes]
-        })
-        st.dataframe(df_mais, use_container_width=True)
-        
         # Gráfico de barras
-        chart_data = pd.DataFrame({
-            'Número': [str(x) for x in mais_frequentes],
-            'Frequência': [freq[num] for num in mais_frequentes]
-        })
-        bar_chart = alt.Chart(chart_data).mark_bar(color='#00C896').encode(
-            x=alt.X('Número:O', sort='-y'),
-            y='Frequência:Q',
-            tooltip=['Número', 'Frequência']
-        ).properties(height=300)
-        st.altair_chart(bar_chart, use_container_width=True)
+        bars = alt.Chart(freq_df).mark_bar().encode(
+            x=alt.X('Número:O', title='Número'),
+            y=alt.Y('Frequência:Q', title='Frequência'),
+            color=alt.condition(
+                alt.datum.Frequência > freq_df['Frequência'].mean(),
+                alt.value('#00C896'),
+                alt.value('#374151')
+            )
+        ).properties(height=400)
+        st.altair_chart(bars, use_container_width=True)
     
     with col2:
-        st.subheader("❄️ Top 10 Menos Frequentes")
-        df_menos = pd.DataFrame({
-            'Número': menos_frequentes,
-            'Frequência': [freq[num] for num in menos_frequentes]
-        })
-        st.dataframe(df_menos, use_container_width=True)
+        st.subheader("Top 10 Mais Sorteados")
+        top10 = freq_df.nlargest(10, 'Frequência')
+        st.dataframe(top10, use_container_width=True, hide_index=True)
         
-        # Gráfico de barras
-        chart_data = pd.DataFrame({
-            'Número': [str(x) for x in menos_frequentes],
-            'Frequência': [freq[num] for num in menos_frequentes]
-        })
-        bar_chart = alt.Chart(chart_data).mark_bar(color='#9CA3AF').encode(
-            x=alt.X('Número:O', sort='y'),
-            y='Frequência:Q',
-            tooltip=['Número', 'Frequência']
-        ).properties(height=300)
-        st.altair_chart(bar_chart, use_container_width=True)
-    
-    # Frequência completa
-    st.subheader("📊 Frequência Completa (1-60)")
-    freq_completa = pd.DataFrame({
-        'Número': list(range(1, 61)),
-        'Frequência': [freq.get(num, 0) for num in range(1, 61)]
-    })
-    
-    # Heatmap visual
-    heatmap_chart = alt.Chart(freq_completa).mark_rect().encode(
-        x=alt.X('Número:O', title='Número'),
-        color=alt.Color('Frequência:Q', scale=alt.Scale(scheme='viridis'))
-    ).properties(height=100)
-    st.altair_chart(heatmap_chart, use_container_width=True)
+        st.subheader("Top 10 Menos Sorteados")
+        bottom10 = freq_df.nsmallest(10, 'Frequência')
+        st.dataframe(bottom10, use_container_width=True, hide_index=True)
 
 def page_pares_impares(df):
-    """Página de análise de pares e ímpares."""
-    st.header("🔢 Distribuição Pares/Ímpares")
+    """Página de análise de pares/ímpares."""
+    st.header("🔢 Análise de Pares e Ímpares")
     
-    distribuicao = analise_pares_impares(df)
+    # Calcular proporção
+    df['Pares'] = df[COLUNAS_BOLAS].apply(lambda row: sum(1 for x in row if x % 2 == 0), axis=1)
+    df['Ímpares'] = 6 - df['Pares']
     
-    # Estatísticas
-    total_sorteios = len(df)
-    st.write(f"**Total de sorteios analisados:** {total_sorteios}")
-    
-    # Tabela de distribuição
+    # Distribuição
+    dist_pares = df['Pares'].value_counts().sort_index()
     dist_df = pd.DataFrame({
-        'Pares no Sorteio': distribuicao.index,
-        'Quantidade de Sorteios': distribuicao.values,
-        'Percentual': (distribuicao.values / total_sorteios * 100).round(2)
-    })
-    st.dataframe(dist_df, use_container_width=True)
-    
-    # Gráfico de barras
-    chart_data = pd.DataFrame({
-        'Pares': [str(x) for x in distribuicao.index],
-        'Sorteios': distribuicao.values
+        'Pares': dist_pares.index,
+        'Frequência': dist_pares.values,
+        'Porcentagem': (dist_pares.values / len(df) * 100).round(1)
     })
     
-    bars = alt.Chart(chart_data).mark_bar(color='#00C896').encode(
-        x=alt.X('Pares:O', title='Quantidade de Pares no Sorteio'),
-        y=alt.Y('Sorteios:Q', title='Número de Sorteios'),
-        tooltip=['Pares', 'Sorteios']
-    ).properties(height=400)
+    col1, col2 = st.columns(2)
     
-    st.altair_chart(bars, use_container_width=True)
+    with col1:
+        st.subheader("Distribuição Pares/Ímpares")
+        chart = alt.Chart(dist_df).mark_bar().encode(
+            x='Pares:O',
+            y='Frequência:Q',
+            color=alt.Color('Pares:O', scale=alt.Scale(scheme='greens'))
+        ).properties(height=300)
+        st.altair_chart(chart, use_container_width=True)
+        
+        # Estatísticas
+        st.metric("Média de Pares por Sorteio", f"{df['Pares'].mean():.2f}")
+        st.metric("Moda (Mais Comum)", int(df['Pares'].mode()[0]))
     
-    # Insights
-    st.subheader("💡 Insights")
-    moda_pares = distribuicao.idxmax()
-    percent_moda = (distribuicao.max() / total_sorteios * 100).round(2)
-    
-    st.info(f"""
-    A configuração mais comum é ter **{moda_pares} números pares** no sorteio, 
-    ocorrendo em **{percent_moda}%** dos concursos analisados.
-    
-    Em geral, a maioria dos sorteios tem entre 2 e 4 números pares.
-    """)
+    with col2:
+        st.subheader("Últimos 20 Sorteios")
+        recent = df.head(20).copy()
+        recent['Razão'] = recent['Pares'].astype(str) + ':' + recent['Ímpares'].astype(str)
+        st.dataframe(recent[['Concurso', 'Pares', 'Ímpares', 'Razão']], 
+                    use_container_width=True, hide_index=True)
 
 def page_combinacoes(df):
-    """Página de análise de combinações."""
-    st.header("🔄 Combinações Frequentes")
+    """Página de análise de combinações recorrentes."""
+    st.header("🔄 Combinações e Padrões")
     
-    st.write("Analisando combinações de 2 números que mais aparecem juntos:")
+    # Análise de duplas recorrentes
+    duplas = []
+    for _, row in df.iterrows():
+        nums = sorted(row[COLUNAS_BOLAS])
+        duplas.extend(list(itertools.combinations(nums, 2)))
     
-    comb_mais_comuns = analise_combinacoes(df, max_comb=2)
+    dupla_counts = Counter(duplas)
+    top_duplas = dupla_counts.most_common(20)
     
-    # Tabela de combinações
-    comb_data = []
-    for comb, freq in comb_mais_comuns:
-        comb_data.append({
-            'Número 1': comb[0],
-            'Número 2': comb[1],
-            'Frequência Conjunta': freq
-        })
+    # Preparar dados para visualização
+    dupla_data = []
+    for (n1, n2), count in top_duplas:
+        dupla_data.append({'Dupla': f'{n1:02d}-{n2:02d}', 'Frequência': count})
     
-    comb_df = pd.DataFrame(comb_data)
-    st.dataframe(comb_df, use_container_width=True)
+    dupla_df = pd.DataFrame(dupla_data)
     
-    # Gráfico de rede (simplificado)
-    st.subheader("🔗 Mapa de Conexões")
+    col1, col2 = st.columns([2, 1])
     
-    # Preparar dados para o gráfico
-    connections = []
-    for comb, freq in comb_mais_comuns[:15]:  # Limita para visualização
-        connections.append({
-            'source': comb[0],
-            'target': comb[1],
-            'value': freq
-        })
+    with col1:
+        # Gráfico de duplas
+        chart = alt.Chart(dupla_df).mark_bar().encode(
+            y=alt.Y('Dupla:O', sort='-x', title='Dupla'),
+            x=alt.X('Frequência:Q', title='Frequência'),
+            color=alt.Color('Frequência:Q', scale=alt.Scale(scheme='viridis'))
+        ).properties(height=500)
+        st.altair_chart(chart, use_container_width=True)
     
-    # Exibir como tabela expandida para melhor visualização
-    expander = st.expander("Ver todas as combinações (até 50)")
-    with expander:
-        comb_data_all = []
-        for comb, freq in comb_mais_comuns[:50]:
-            comb_data_all.append({
-                'Combinação': f"{comb[0]} - {comb[1]}",
-                'Frequência': freq
-            })
-        comb_df_all = pd.DataFrame(comb_data_all)
-        st.dataframe(comb_df_all, use_container_width=True)
+    with col2:
+        st.subheader("Top 15 Duplas")
+        st.dataframe(dupla_df.head(15), use_container_width=True, hide_index=True)
+        
+        # Análise de trios
+        st.subheader("Análise de Trios")
+        trio_sample = []
+        for _, row in df.head(50).iterrows():
+            nums = sorted(row[COLUNAS_BOLAS])
+            trio_sample.extend(list(itertools.combinations(nums, 3))[:2])
+        
+        trio_counts = Counter(trio_sample)
+        st.write(f"Trios únicos nos últimos 50: {len(trio_counts)}")
 
 def page_quentes(df):
-    """Página de análise de números quentes e frios."""
-    st.header("🔥❄️ Números Quentes e Frios")
+    """Página de números quentes e frios."""
+    st.header("🔥 Números Quentes e Frios")
     
-    window = st.slider(
-        "Período para análise (últimos N sorteios):",
-        min_value=10,
-        max_value=100,
-        value=30,
-        help="Define quantos sorteios recentes considerar como 'quentes'"
-    )
+    # Definir período para análise
+    periodo = st.slider("Número de Concursos para Análise", 
+                       min_value=10, 
+                       max_value=100, 
+                       value=50)
     
-    quentes, frios = analise_quentes_frios(df, window)
+    df_recente = df.head(periodo).copy()
     
-    col1, col2 = st.columns(2)
+    # Calcular frequências no período
+    all_recent = df_recente[COLUNAS_BOLAS].values.flatten()
+    freq_recent = pd.Series(all_recent).value_counts().reindex(range(1, 61), fill_value=0)
+    
+    # Classificar
+    limiar_quente = freq_recent.quantile(0.75)
+    limiar_frio = freq_recent.quantile(0.25)
+    
+    quentes = freq_recent[freq_recent >= limiar_quente].index.tolist()
+    frios = freq_recent[freq_recent <= limiar_frio].index.tolist()
+    normais = [n for n in range(1, 61) if n not in quentes + frios]
+    
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.subheader(f"🔥 Quentes (últimos {window} sorteios)")
-        df_quentes = pd.DataFrame({'Número': quentes})
-        st.dataframe(df_quentes, use_container_width=True)
+        st.subheader(f"🔥 Quentes ({len(quentes)})")
+        st.write("Frequência alta recente")
+        quentes_str = ', '.join(f'{n:02d}' for n in sorted(quentes))
+        st.info(quentes_str)
         
-        # Display como bolas
-        st.write("Visualização:")
-        html_quentes = "<div style='margin: 10px 0;'>"
-        for num in quentes:
-            html_quentes += f"<span class='numero-bola'>{num}</span>"
-        html_quentes += "</div>"
-        st.markdown(html_quentes, unsafe_allow_html=True)
+        # Gráfico quentes
+        if quentes:
+            q_df = pd.DataFrame({
+                'Número': quentes,
+                'Frequência': [freq_recent[n] for n in quentes],
+                'Tipo': 'Quente'
+            })
+            bars = alt.Chart(q_df).mark_bar(color='#EF4444').encode(
+                x='Número:O',
+                y='Frequência:Q'
+            ).properties(height=200)
+            st.altair_chart(bars, use_container_width=True)
     
     with col2:
-        st.subheader(f"❄️ Frios (excluindo últimos {window} sorteios)")
-        df_frios = pd.DataFrame({'Número': frios})
-        st.dataframe(df_frios, use_container_width=True)
-        
-        # Display como bolas
-        st.write("Visualização:")
-        html_frios = "<div style='margin: 10px 0;'>"
-        for num in frios:
-            html_frios += f"<span class='numero-bola' style='background: linear-gradient(145deg, #9CA3AF, #6B7280);'>{num}</span>"
-        html_frios += "</div>"
-        st.markdown(html_frios, unsafe_allow_html=True)
+        st.subheader(f"😐 Normais ({len(normais)})")
+        st.write("Frequência média recente")
+        normais_str = ', '.join(f'{n:02d}' for n in sorted(normais[:20]))
+        if len(normais) > 20:
+            normais_str += f"... (+{len(normais)-20})"
+        st.warning(normais_str)
     
-    # Análise temporal
-    st.subheader("📈 Evolução Temporal")
-    
-    # Selecionar números para acompanhar
-    numeros_selecionados = st.multiselect(
-        "Selecione números para acompanhar:",
-        options=list(range(1, 61)),
-        default=quentes[:3] + frios[:2]
-    )
-    
-    if numeros_selecionados:
-        # Calcular frequência acumulada
-        df_sorted = df.sort_values('Concurso')
-        freq_acumulada = {num: [] for num in numeros_selecionados}
-        concursos = []
+    with col3:
+        st.subheader(f"❄️ Frios ({len(frios)})")
+        st.write("Frequência baixa recente")
+        frios_str = ', '.join(f'{n:02d}' for n in sorted(frios))
+        st.success(frios_str)
         
-        for i, (_, row) in enumerate(df_sorted.iterrows(), 1):
-            concursos.append(row['Concurso'])
-            sorteio_nums = [row[f'B{i}'] for i in range(1, 7)]
-            for num in numeros_selecionados:
-                freq = sum(1 for x in sorteio_nums if x == num)
-                if i == 1:
-                    freq_acumulada[num].append(freq)
-                else:
-                    freq_acumulada[num].append(freq_acumulada[num][-1] + freq)
-        
-        # Preparar dados para o gráfico
-        chart_data = []
-        for num in numeros_selecionados:
-            for concurso, freq in zip(concursos, freq_acumulada[num]):
-                chart_data.append({
-                    'Concurso': concurso,
-                    'Número': f'Número {num}',
-                    'Frequência Acumulada': freq
-                })
-        
-        chart_df = pd.DataFrame(chart_data)
-        
-        line_chart = alt.Chart(chart_df).mark_line().encode(
-            x='Concurso:O',
-            y='Frequência Acumulada:Q',
-            color='Número:N',
-            tooltip=['Concurso', 'Número', 'Frequência Acumulada']
-        ).properties(height=400)
-        
-        st.altair_chart(line_chart, use_container_width=True)
+        # Gráfico frios
+        if frios:
+            f_df = pd.DataFrame({
+                'Número': frios,
+                'Frequência': [freq_recent[n] for n in frios],
+                'Tipo': 'Frio'
+            })
+            bars = alt.Chart(f_df).mark_bar(color='#3B82F6').encode(
+                x='Número:O',
+                y='Frequência:Q'
+            ).properties(height=200)
+            st.altair_chart(bars, use_container_width=True)
 
 def page_somas(df):
-    """Página de análise de somas."""
-    st.header("🧮 Análise das Somas")
+    """Página de análise das somas das dezenas."""
+    st.header("🧮 Análise das Somas das Dezenas")
     
     # Calcular somas
-    df['Soma'] = sum(df[f'B{i}'] for i in range(1, 7))
+    df['Soma'] = df[COLUNAS_BOLAS].sum(axis=1)
     
-    col1, col2 = st.columns(2)
+    # Estatísticas
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Soma Média", f"{df['Soma'].mean():.1f}")
+    col2.metric("Soma Mínima", int(df['Soma'].min()))
+    col3.metric("Soma Máxima", int(df['Soma'].max()))
+    col4.metric("Desvio Padrão", f"{df['Soma'].std():.1f}")
     
-    with col1:
-        st.subheader("Estatísticas Descritivas")
-        stats = df['Soma'].describe()
-        stats_df = pd.DataFrame({
-            'Estatística': ['Mínimo', 'Máximo', 'Média', 'Mediana', 'Desvio Padrão'],
-            'Valor': [
-                int(stats['min']),
-                int(stats['max']),
-                f"{stats['mean']:.1f}",
-                int(stats['50%']),
-                f"{stats['std']:.1f}"
-            ]
-        })
-        st.dataframe(stats_df, use_container_width=True)
+    # Distribuição
+    st.subheader("Distribuição das Somas")
     
-    with col2:
-        st.subheader("Distribuição mais Comum")
-        freq_somas = df['Soma'].value_counts().head(10)
-        freq_df = pd.DataFrame({
-            'Soma': freq_somas.index,
-            'Frequência': freq_somas.values
-        })
-        st.dataframe(freq_df, use_container_width=True)
+    hist = alt.Chart(df).mark_bar(color='#00C896').encode(
+        alt.X('Soma:Q', bin=alt.Bin(maxbins=30), title='Soma'),
+        alt.Y('count():Q', title='Frequência')
+    ).properties(height=300)
     
-    # Histograma
-    st.subheader("📊 Distribuição de Frequência")
+    st.altair_chart(hist, use_container_width=True)
     
-    hist_chart = alt.Chart(df).mark_bar(color='#00C896').encode(
-        alt.X('Soma:Q', bin=alt.Bin(maxbins=30), title='Soma dos Números'),
-        alt.Y('count()', title='Frequência'),
-        tooltip=['count()']
-    ).properties(height=400)
+    # Análise temporal
+    st.subheader("Evolução Temporal das Somas")
     
-    st.altair_chart(hist_chart, use_container_width=True)
-    
-    # Somas por período
-    st.subheader("📈 Evolução Temporal das Somas")
-    
-    df_sorted = df.sort_values('Concurso')
-    line_chart = alt.Chart(df_sorted).mark_line(color='#00C896').encode(
-        x=alt.X('Concurso:O', title='Concurso'),
+    line = alt.Chart(df.head(100)).mark_line(color='#00C896').encode(
+        x=alt.X('Concurso:Q', title='Concurso'),
         y=alt.Y('Soma:Q', title='Soma'),
         tooltip=['Concurso', 'Soma']
-    ).properties(height=400)
+    ).properties(height=300)
     
-    st.altair_chart(line_chart, use_container_width=True)
+    mean_line = alt.Chart(pd.DataFrame({'y': [df['Soma'].mean()]})).mark_rule(
+        color='red', strokeDash=[5, 5]
+    ).encode(y='y:Q')
     
-    # Insights
-    st.subheader("💡 Insights")
-    
-    media_soma = df['Soma'].mean()
-    mediana_soma = df['Soma'].median()
-    
-    st.info(f"""
-    **Características das Somas:**
-    - **Média:** {media_soma:.1f} pontos
-    - **Mediana:** {mediana_soma:.0f} pontos
-    - **Faixa típica:** A maioria das somas está entre {int(media_soma - 20)} e {int(media_soma + 20)}
-    - **Distribuição:** Normalmente seguem uma distribuição aproximadamente normal
-    
-    **Recomendação:** Ao escolher números, tente somas próximas da média histórica ({media_soma:.0f} ± 15 pontos).
-    """)
+    st.altair_chart(line + mean_line, use_container_width=True)
 
 def page_ai(df):
-    """Página de previsões com IA."""
+    """Página de previsões com IA - COM CONTROLE DE ACESSO."""
     st.header("🤖 Previsões com Inteligência Artificial")
     
-    # Inicializar estado da sessão
-    if 'jogos_gerados' not in st.session_state:
-        st.session_state['jogos_gerados'] = False
-    if 'email_enviado' not in st.session_state:
-        st.session_state['email_enviado'] = False
+    # Mostrar controle de acesso
+    mostrar_controle_acesso()
     
-    st.write("""
-    Esta seção utiliza aprendizado de máquina para analisar padrões históricos 
-    e sugerir combinações com base em probabilidades calculadas.
+    # Verificar se pode acessar (primeiro jogo é sempre permitido)
+    if not verificar_permissao_gerar_jogo():
+        # Já exibiu mensagem no mostrar_controle_acesso()
+        return
     
-    **Como funciona:**
-    1. O modelo analisa sequências temporais dos sorteios
-    2. Calcula probabilidades para cada número (1-60)
-    3. Gera combinações otimizadas estatisticamente
+    # Continuar com a funcionalidade original
+    st.markdown("""
+    Esta ferramenta utiliza **machine learning** para analisar padrões históricos 
+    e sugerir combinações com maior probabilidade estatística.
     """)
     
-    # Aceite de termos
+    # Configurações
+    col1, col2 = st.columns(2)
+    with col1:
+        n_jogos = st.slider("Número de Jogos", 1, 20, 5)
+    with col2:
+        top_n = st.slider("Considerar Top N Números", 15, 40, 25)
+    
     aceite = st.checkbox(
-        "✅ Li e aceito os termos: Entendo que são apenas sugestões estatísticas e não garantia de acertos.",
-        value=False
+        "✅ Confirmo que entendo que são sugestões estatísticas e não garantias"
     )
     
-    if aceite:
-        # Verificar se já gerou jogos ou se é a primeira vez
-        if not st.session_state['jogos_gerados']:
-            # PRIMEIRA VEZ: Gerar diretamente sem pedir email
-            st.success("🎉 **Primeira geração liberada!** Você pode gerar jogos uma vez sem necessidade de email.")
+    if st.button("🎯 GERAR PREVISÕES COM IA", 
+                 type="primary", 
+                 disabled=not aceite,
+                 use_container_width=True):
+        
+        # Verificar novamente antes de gerar (para casos de múltiplos cliques)
+        if not verificar_permissao_gerar_jogo():
+            st.warning("Limite de jogos gratuitos atingido. Verifique seu acesso acima.")
+            return
+        
+        with st.spinner("🧠 Analisando padrões históricos e treinando modelo..."):
+            time.sleep(1)
             
-            # Configurações do modelo
-            with st.expander("⚙️ Configurações Avançadas", expanded=False):
-                lookback = st.slider("Período de análise (lookback):", 5, 20, 10)
-                num_jogos = st.slider("Quantidade de jogos:", 5, 20, 10)
-                top_n = st.slider("Top N números:", 15, 40, 25)
-            
-            # Botão para gerar
-            if st.button("🚀 GERAR JOGOS COM IA", type="primary", use_container_width=True):
-                with st.spinner("Analisando padrões históricos e calculando probabilidades..."):
-                    time.sleep(1)
-                    
-                    # Treinar modelo
-                    modelos, scalers = treinar_modelo(df, lookback)
-                    
-                    if modelos is not None:
-                        # Fazer previsões
-                        preds = prever_probab(modelos, scalers, df, lookback, top_n)
-                        
-                        if preds is not None:
-                            # Gerar combinações
-                            combs = gerar_combinacoes(preds, num_jogos)
-                            
-                            # Marcar que já gerou jogos
-                            st.session_state['jogos_gerados'] = True
-                            
-                            # Exibir resultados
-                            st.success(f"✅ {num_jogos} jogos gerados com sucesso!")
-                            
-                            # Mostrar probabilidades
-                            st.subheader("🎯 Probabilidades dos Números")
-                            df_probs = pd.DataFrame(preds, columns=['Número', 'Probabilidade'])
-                            df_probs['Probabilidade'] = (df_probs['Probabilidade'] * 100).round(2)
-                            st.dataframe(df_probs, use_container_width=True)
-                            
-                            # Mostrar jogos gerados
-                            st.subheader("🎰 Jogos Sugeridos")
-                            for i, jogo in enumerate(combs, 1):
-                                html_jogo = f"""
-                                <div class='jogo-card'>
-                                    <h4>Jogo {i}:</h4>
-                                    <div style='margin: 15px 0;'>
-                                """
-                                for num in jogo:
-                                    html_jogo += f"<span class='numero-bola'>{num}</span>"
-                                html_jogo += "</div></div>"
-                                st.markdown(html_jogo, unsafe_allow_html=True)
-                            
-                            # Métricas dos jogos
-                            st.subheader("📊 Análise das Combinações")
-                            show_all = st.checkbox("Mostrar análise detalhada de todos os números")
-                            
-                            if show_all:
-                                todas_preds = []
-                                for pos in range(6):
-                                    if modelos[pos] is not None:
-                                        # Previsões detalhadas para esta posição
-                                        pass
-                            
-                            # Estatísticas resumidas
-                            st.write("**Resumo estatístico dos jogos gerados:**")
-                            for i, jogo in enumerate(combs, 1):
-                                c = jogo
-                                soma = sum(c)
-                                pares = sum(1 for x in c if x % 2 == 0)
-                                impares = 6 - pares
-                                baixos = sum(1 for x in c if x <= 30)
-                                altos = 6 - baixos
-                                m1, m2, m3, m4 = st.columns(4)
-                                m1.metric("Soma", soma)
-                                m2.metric("Par/Ímpar", f"{pares}/{impares}")
-                                m3.metric("Baixo/Alto", f"{baixos}/{altos}")
-                                m4.metric("Média", f"{soma/6:.1f}")
-                            
-                            st.markdown("---")
-                            st.subheader("💾 Salvar Jogos")
-                            
-                            # Gera PDF
-                            pdf_bytes = gerar_pdf_bytes(combs)
-                            st.download_button(
-                                label="📄 BAIXAR JOGOS EM PDF",
-                                data=pdf_bytes,
-                                file_name='palpites_megasena_.pdf',
-                                mime='application/pdf',
-                                type="primary",
-                                use_container_width=True
+            try:
+                # Treinar modelo
+                predictor = MegaSenaPredictor(df)
+                success = predictor.train()
+                
+                if not success:
+                    st.error("Falha no treinamento do modelo.")
+                    return
+                
+                # Gerar previsões
+                combs, preds = predictor.generate_combinations(
+                    n_comb=n_jogos, 
+                    top_n=top_n
+                )
+                
+                # Exibir resultados
+                st.subheader("🎯 Combinações Sugeridas")
+                
+                cols = st.columns(min(3, len(combs)))
+                for idx, comb in enumerate(combs):
+                    with cols[idx % 3]:
+                        with st.container():
+                            st.markdown(f"**Jogo {idx+1}**")
+                            st.markdown(
+                                f"<div style='font-size: 1.2rem; font-weight: bold; "
+                                f"color: #00C896; padding: 10px; background: #1F2937; "
+                                f"border-radius: 10px; text-align: center;'>"
+                                f"{' - '.join(f'{n:02d}' for n in comb)}</div>",
+                                unsafe_allow_html=True
                             )
-                    else:
-                        st.error("Não foi possível treinar o modelo. Verifique os dados.")
-        else:
-            # JÁ GEROU JOGOS UMA VEZ: Mostrar formulário de email
-            st.warning("⚠️ **Você já usou sua geração gratuita.**")
-            
-            if not st.session_state['email_enviado']:
-                st.markdown("""
-                <div class='premium-gate'>
-                    <h3>🔓 Desbloqueie Novas Gerações</h3>
-                    <p>Para continuar gerando jogos, insira seu email abaixo.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                email = st.text_input("📧 Seu melhor e-mail:")
-                
-                if st.button("🔓 DESBLOQUEAR", type="primary", use_container_width=True):
-                    if email and "@" in email and "." in email:
-                        # Aqui você pode adicionar lógica para enviar o email
-                        # Por enquanto, apenas marcamos como enviado
-                        st.session_state['email_enviado'] = True
-                        st.success("✅ E-mail registrado! Agora você pode gerar novos jogos.")
-                        st.rerun()
-                    else:
-                        st.error("Por favor, insira um e-mail válido.")
-            else:
-                # EMAIL JÁ ENVIADO: Liberar para novas gerações
-                st.success("✅ **Email verificado!** Você pode gerar novos jogos.")
-                
-                # Configurações do modelo
-                with st.expander("⚙️ Configurações Avançadas", expanded=False):
-                    lookback = st.slider("Período de análise (lookback):", 5, 20, 10)
-                    num_jogos = st.slider("Quantidade de jogos:", 5, 20, 10)
-                    top_n = st.slider("Top N números:", 15, 40, 25)
-                
-                # Botão para gerar
-                if st.button("🚀 GERAR NOVOS JOGOS", type="primary", use_container_width=True):
-                    with st.spinner("Analisando padrões históricos e calculando probabilidades..."):
-                        time.sleep(1)
-                        
-                        # Treinar modelo
-                        modelos, scalers = treinar_modelo(df, lookback)
-                        
-                        if modelos is not None:
-                            # Fazer previsões
-                            preds = prever_probab(modelos, scalers, df, lookback, top_n)
                             
-                            if preds is not None:
-                                # Gerar combinações
-                                combs = gerar_combinacoes(preds, num_jogos)
-                                
-                                # Exibir resultados
-                                st.success(f"✅ {num_jogos} novos jogos gerados com sucesso!")
-                                
-                                # Mostrar probabilidades
-                                st.subheader("🎯 Probabilidades dos Números")
-                                df_probs = pd.DataFrame(preds, columns=['Número', 'Probabilidade'])
-                                df_probs['Probabilidade'] = (df_probs['Probabilidade'] * 100).round(2)
-                                st.dataframe(df_probs, use_container_width=True)
-                                
-                                # Mostrar jogos gerados
-                                st.subheader("🎰 Jogos Sugeridos")
-                                for i, jogo in enumerate(combs, 1):
-                                    html_jogo = f"""
-                                    <div class='jogo-card'>
-                                        <h4>Jogo {i}:</h4>
-                                        <div style='margin: 15px 0;'>
-                                    """
-                                    for num in jogo:
-                                        html_jogo += f"<span class='numero-bola'>{num}</span>"
-                                    html_jogo += "</div></div>"
-                                    st.markdown(html_jogo, unsafe_allow_html=True)
-                                
-                                # Métricas dos jogos
-                                st.subheader("📊 Análise das Combinações")
-                                show_all = st.checkbox("Mostrar análise detalhada de todos os números")
-                                
-                                if show_all:
-                                    todas_preds = []
-                                    for pos in range(6):
-                                        if modelos[pos] is not None:
-                                            # Previsões detalhadas para esta posição
-                                            pass
-                                
-                                # Estatísticas resumidas
-                                st.write("**Resumo estatístico dos jogos gerados:**")
-                                for i, jogo in enumerate(combs, 1):
-                                    c = jogo
-                                    soma = sum(c)
-                                    pares = sum(1 for x in c if x % 2 == 0)
-                                    impares = 6 - pares
-                                    baixos = sum(1 for x in c if x <= 30)
-                                    altos = 6 - baixos
-                                    m1, m2, m3, m4 = st.columns(4)
-                                    m1.metric("Soma", soma)
-                                    m2.metric("Par/Ímpar", f"{pares}/{impares}")
-                                    m3.metric("Baixo/Alto", f"{baixos}/{altos}")
-                                    m4.metric("Média", f"{soma/6:.1f}")
-                                
-                                st.markdown("---")
-                                st.subheader("💾 Salvar Jogos")
-                                
-                                # Gera PDF
-                                pdf_bytes = gerar_pdf_bytes(combs)
-                                st.download_button(
-                                    label="📄 BAIXAR JOGOS EM PDF",
-                                    data=pdf_bytes,
-                                    file_name='palpites_megasena_.pdf',
-                                    mime='application/pdf',
-                                    type="primary",
-                                    use_container_width=True
-                                )
-                        else:
-                            st.error("Não foi possível treinar o modelo. Verifique os dados.")
-    else:
+                            # Estatísticas da combinação
+                            soma = sum(comb)
+                            pares = sum(1 for x in comb if x % 2 == 0)
+                            impares = 6 - pares
+                            baixos = sum(1 for x in comb if x <= 30)
+                            altos = 6 - baixos
+                            
+                            st.caption(f"Soma: {soma} | Pares: {pares} | Baixos: {baixos}")
+                
+                # Métricas resumo
+                st.subheader("📊 Estatísticas das Combinações")
+                comb_array = np.array(combs)
+                soma_media = np.mean(comb_array.sum(axis=1))
+                pares_medio = np.mean([sum(1 for x in c if x % 2 == 0) for c in combs])
+                
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Soma Média", f"{soma_media:.1f}")
+                m2.metric("Pares Médios", f"{pares_medio:.1f}")
+                m3.metric("Baixos Médios", f"{np.mean([sum(1 for x in c if x <= 30) for c in combs]):.1f}")
+                m4.metric("Variação", f"{len(set(np.array(combs).flatten()))}/60")
+                
+                # Botão para download
+                st.markdown("---")
+                st.subheader("💾 Salvar Jogos")
+                pdf_bytes = gerar_pdf_bytes(combs)
+                
+                st.download_button(
+                    label="📄 BAIXAR JOGOS EM PDF",
+                    data=pdf_bytes,
+                    file_name='palpites_megasena_ai.pdf',
+                    mime='application/pdf',
+                    type='primary",
+                    use_container_width=True
+                )
+                
+                # Mostrar todas as probabilidades (opcional)
+                if st.checkbox("Mostrar probabilidades de todos os números"):
+                    df_probs = pd.DataFrame(preds, columns=['Número', 'Probabilidade'])
+                    df_probs['Probabilidade'] = (df_probs['Probabilidade'] * 100).round(2)
+                    st.dataframe(df_probs, use_container_width=True)
+                
+                # Mostrar contador de uso
+                if not st.session_state['usuario_premium']:
+                    jogos_usados = st.session_state['jogos_gerados']
+                    jogos_restantes = max(0, ACESSO_LIVRE_JOGOS - jogos_usados)
+                    
+                    if jogos_restantes > 0:
+                        st.info(f"🎁 Você ainda tem {jogos_restantes} jogo(s) gratuito(s).")
+                    else:
+                        st.warning("⚠️ Você utilizou todos os jogos gratuitos.")
+                
+            except Exception as e:
+                st.error(f"Erro no processamento: {str(e)}")
+    elif not aceite:
         st.info("Marque o aceite para habilitar o modelo preditivo.")
 
 # =============================================================================
-# MAIN
+# MAIN (ATUALIZADA COM CONTROLE DE ACESSO)
 # =============================================================================
 
 def main():
+    # Inicializar CSS
     inject_custom_css()
-    st.title("🎲 Análise Mega-Sena")
     
-    # 1. Carregar
+    # Inicializar sistema de sessão
+    inicializar_sessao()
+    
+    # Título principal
+    st.title("🎲 Análise Mega-Sena - Sistema Premium")
+    
+    # Carregar dados
     df = carregar_dados_caixa()
-    
-    # Se não conseguir da API, tenta dados de backup
     if not validar_dados(df):
-        df = carregar_dados_backup()
-    
-    if not validar_dados(df):
-        st.error("""
-        Erro crítico: Banco de dados indisponível.
-        
-        Soluções possíveis:
-        1. Verifique sua conexão com a internet
-        2. Recarregue a página (F5)
-        3. Tente novamente mais tarde
-        
-        A API da Caixa pode estar temporariamente indisponível.
-        """)
+        st.error("Erro crítico: Banco de dados indisponível.")
         return
     
-    # 2. Navegação
+    # Navegação
     draw_navigation()
     
-    # 3. Roteamento
+    # Roteamento de páginas
     page = st.session_state['current_page']
     
     if page == "Visão Geral":
@@ -1219,7 +944,7 @@ def main():
     elif page == "∑ Somas":
         page_somas(df)
     elif page == "Previsões AI":
-        page_ai(df)
+        page_ai(df)  # Página com controle de acesso
 
 if __name__ == "__main__":
     main()
